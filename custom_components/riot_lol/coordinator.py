@@ -121,6 +121,10 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         headers = {"X-Riot-Token": self._api_key}
         timeout = ClientTimeout(total=10)
         
+        _LOGGER.info("Fetching account info for %s#%s in region %s (cluster: %s)", 
+                    self._game_name, self._tag_line, self._region, regional_cluster)
+        _LOGGER.info("Account API URL: %s", url.replace(self._game_name, "***").replace(self._tag_line, "***"))
+        
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
@@ -165,24 +169,36 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         headers = {"X-Riot-Token": self._api_key}
         timeout = ClientTimeout(total=10)
         
-        _LOGGER.debug("Fetching summoner info for PUUID %s in region %s", self._puuid[:8] + "...", self._region)
+        _LOGGER.info("Fetching summoner info for PUUID %s in region %s", self._puuid[:8] + "...", self._region)
+        _LOGGER.info("Summoner API URL: %s", url.replace(self._puuid, self._puuid[:8] + "..."))
         
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
                     data = await response.json()
-                    _LOGGER.debug("Summoner API response: %s", {k: v for k, v in data.items() if k != 'accountId'})
+                    _LOGGER.debug("Full summoner API response: %s", data)
                     
-                    # Check for summoner ID in response
+                    # Check for summoner ID in response (primary approach)
                     summoner_id = data.get("id")
                     if summoner_id:
                         self._summoner_id = summoner_id
                         _LOGGER.debug("Retrieved summoner ID: %s", self._summoner_id)
                     else:
-                        # Log the full response to debug what's missing
+                        # Log available fields and try alternative approaches
                         available_fields = list(data.keys()) if data else []
-                        _LOGGER.error("Summoner API response missing 'id' field. Available fields: %s", available_fields)
-                        raise UpdateFailed(f"No summoner ID found in response. Available fields: {available_fields}")
+                        _LOGGER.warning("Summoner API response missing 'id' field. Available fields: %s", available_fields)
+                        
+                        # Try alternative field names that might contain the summoner ID
+                        alt_id = data.get("summonerId") or data.get("encryptedSummonerId")
+                        if alt_id:
+                            self._summoner_id = alt_id
+                            _LOGGER.info("Using alternative summoner ID field: %s", self._summoner_id)
+                        else:
+                            # For some regions/APIs, we might need to continue without summoner ID
+                            # and use PUUID for everything possible
+                            _LOGGER.warning("No summoner ID available, will use PUUID where possible")
+                            self._summoner_id = None
+                            # Don't raise an error here, let the calling methods handle the missing ID
                 elif response.status == 404:
                     raise UpdateFailed(f"Summoner not found for PUUID {self._puuid[:8]}... in region {self._region}")
                 elif response.status == 429:
@@ -205,6 +221,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             await self._fetch_summoner_info()
             
         if not self._summoner_id:
+            _LOGGER.warning("No summoner ID available, cannot check current game status")
             return None
             
         url = f"https://{self._region}.api.riotgames.com/lol/spectator/v4/active-games/by-summoner/{self._summoner_id}"
@@ -362,7 +379,8 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             await self._fetch_summoner_info()
             
         if not self._summoner_id:
-            return {}
+            _LOGGER.warning("No summoner ID available, cannot fetch ranked stats")
+            return {"rank": "Unknown - No Summoner ID"}
             
         url = f"https://{self._region}.api.riotgames.com/lol/league/v4/entries/by-summoner/{self._summoner_id}"
         headers = {"X-Riot-Token": self._api_key}

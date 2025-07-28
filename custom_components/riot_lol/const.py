@@ -10,29 +10,33 @@ CONF_REGION = "region"
 CONF_RIOT_ID = "riot_id"
 
 # Default values
-DEFAULT_REGION = "euw1"
+DEFAULT_REGION = "eun1"  # Changed to EUNE for testing
 DEFAULT_SCAN_INTERVAL = 300  # 5 minutes
 MIN_SCAN_INTERVAL = 60       # 1 minute
 MAX_SCAN_INTERVAL = 3600     # 1 hour
 
-# API endpoints and regions
+# API endpoints and regions (Updated 2025)
 REGION_CLUSTERS = {
+    # Americas
     "na1": "americas",
     "br1": "americas", 
     "la1": "americas",
     "la2": "americas",
+    # Europe
     "euw1": "europe",
-    "eun1": "europe",
-    "tr1": "europe",
-    "ru": "europe",
+    "eun1": "europe",  # Europe Nordic & East (EUNE)
+    "tr1": "europe",   # Turkey
+    "ru1": "europe",   # Russia (fixed from "ru" to "ru1")
+    # Asia
     "kr": "asia",
     "jp1": "asia",
-    "oc1": "sea",
-    "ph2": "sea",
-    "sg2": "sea",
-    "th2": "sea",
-    "tw2": "sea",
-    "vn2": "sea"
+    # SEA (Southeast Asia)
+    "oc1": "sea",      # Oceania
+    "ph2": "sea",      # Philippines
+    "sg2": "sea",      # Singapore
+    "th2": "sea",      # Thailand
+    "tw2": "sea",      # Taiwan
+    "vn2": "sea"       # Vietnam
 }
 
 PLATFORM_REGIONS = list(REGION_CLUSTERS.keys())
