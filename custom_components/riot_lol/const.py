@@ -11,7 +11,7 @@ CONF_RIOT_ID = "riot_id"
 
 # Default values
 DEFAULT_REGION = "eun1"  # Changed to EUNE for testing
-DEFAULT_SCAN_INTERVAL = 300  # 5 minutes
+DEFAULT_SCAN_INTERVAL = 60   # 1 minute for more frequent updates
 MIN_SCAN_INTERVAL = 60       # 1 minute
 MAX_SCAN_INTERVAL = 3600     # 1 hour
 

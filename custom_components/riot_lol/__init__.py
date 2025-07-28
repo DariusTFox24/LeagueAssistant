@@ -24,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     game_name = entry.data["game_name"]
     tag_line = entry.data.get("tag_line", "")
     region = entry.data["region"]
+    puuid = entry.data.get("puuid")  # Get pre-validated PUUID if available
     
     # Get scan interval from options (with fallback to default)
     scan_interval = entry.options.get("scan_interval", DEFAULT_SCAN_INTERVAL)
@@ -39,6 +40,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         region=region,
         session=session,
         update_interval=update_interval,
+        puuid=puuid,  # Pass the pre-validated PUUID
     )
 
     # Perform initial data fetch

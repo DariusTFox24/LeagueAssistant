@@ -43,9 +43,10 @@ class RiotLoLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             validation_result = await self._validate_input(api_key, game_name, tag_line, region)
             if validation_result["valid"]:
-                # Store the data including both game_name/tag_line and riot_id for backward compatibility
+                # Store the data including both game_name/tag_line, riot_id, and puuid
                 data = user_input.copy()
                 data["riot_id"] = riot_id
+                data["puuid"] = validation_result["puuid"]  # Store the validated PUUID
                 return self.async_create_entry(title=riot_id, data=data)
             else:
                 errors["base"] = validation_result["error_code"]
@@ -72,19 +73,26 @@ class RiotLoLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         url = f"https://{regional_cluster}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{encoded_game_name}/{encoded_tag_line}"
         headers = {"X-Riot-Token": api_key}
         
+        _LOGGER.info(f"Validating Riot ID: {game_name}#{tag_line} in region {region}")
+        _LOGGER.info(f"Using regional cluster: {regional_cluster}")
+        _LOGGER.info(f"API URL (masked): https://{regional_cluster}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/***/***/")
+        
         timeout = ClientTimeout(total=10)  # 10 second timeout
 
         try:
             async with ClientSession(timeout=timeout) as session:
                 async with session.get(url, headers=headers) as resp:
+                    _LOGGER.info(f"Account API response status: {resp.status}")
                     if resp.status == 200:
                         account_data = await resp.json()
+                        _LOGGER.info(f"Account API response data: {account_data}")
                         puuid = account_data.get("puuid")
                         if puuid:
                             _LOGGER.info(f"Successfully validated Riot ID: {game_name}#{tag_line} in region: {region}")
                             return {"valid": True, "error_code": None, "puuid": puuid}
                         else:
                             _LOGGER.error(f"No PUUID found in response for {game_name}#{tag_line}")
+                            _LOGGER.error(f"Available fields in response: {list(account_data.keys()) if account_data else 'None'}")
                             return {"valid": False, "error_code": "invalid_response"}
                     elif resp.status == 401:
                         _LOGGER.error(f"Invalid API key for region: {region}")
