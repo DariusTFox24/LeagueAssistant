@@ -1,0 +1,49 @@
+# Example configuration for League of Legends Stats integration
+# This integration is configured through the Home Assistant UI
+# Go to Configuration > Integrations > Add Integration > League of Legends Stats
+
+# Legacy YAML configuration (deprecated - use UI instead):
+# sensor:
+#   - platform: riot_lol
+#     api_key: YOUR_RIOT_API_KEY
+#     game_name: YourGameName
+#     tag_line: YourTagLine
+#     region: euw1
+
+# Example automation using the integration:
+automation:
+  - alias: "LoL Game Started Notification"
+    trigger:
+      - platform: state
+        entity_id: sensor.lol_stats_game_state
+        to: "In Game"
+    action:
+      - service: notify.mobile_app_your_phone
+        data:
+          title: "League of Legends"
+          message: "{{ trigger.to_state.attributes.champion }} game started!"
+
+  - alias: "LoL Victory Celebration"
+    trigger:
+      - platform: state
+        entity_id: sensor.lol_stats_game_state
+        from: "In Game"
+        to: "Online"
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.attributes.win == true }}"
+    action:
+      - service: light.turn_on
+        target:
+          entity_id: light.living_room
+        data:
+          color_name: green
+          brightness: 255
+
+# Example sensor template for KDA display:
+template:
+  - sensor:
+      - name: "LoL KDA Display"
+        state: "{{ states('sensor.lol_stats_kills') }}/{{ states('sensor.lol_stats_deaths') }}/{{ states('sensor.lol_stats_assists') }}"
+        attributes:
+          kda_ratio: "{{ states('sensor.lol_stats_kda_ratio') }}"
