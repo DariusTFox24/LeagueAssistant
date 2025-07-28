@@ -2,14 +2,6 @@
 # This integration is configured through the Home Assistant UI
 # Go to Configuration > Integrations > Add Integration > League of Legends Stats
 
-# Legacy YAML configuration (deprecated - use UI instead):
-# sensor:
-#   - platform: riot_lol
-#     api_key: YOUR_RIOT_API_KEY
-#     game_name: YourGameName
-#     tag_line: YourTagLine
-#     region: euw1
-
 # Example automation using the integration:
 automation:
   - alias: "LoL Game Started Notification"
