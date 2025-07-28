@@ -224,7 +224,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("No summoner ID available, cannot check current game status")
             return None
             
-        url = f"https://{self._region}.api.riotgames.com/lol/spectator/v4/active-games/by-summoner/{self._summoner_id}"
+        url = f"https://{self._region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._summoner_id}"
         headers = {"X-Riot-Token": self._api_key}
         timeout = ClientTimeout(total=10)
         
@@ -290,10 +290,6 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             
         # Get regional cluster for match API
         regional_cluster = REGION_CLUSTERS.get(self._region, "americas")
-        if self._region in ["kr", "jp1"]:
-            regional_cluster = "asia"
-        elif self._region in ["oc1", "ph2", "sg2", "th2", "tw2", "vn2"]:
-            regional_cluster = "sea"
         
         # Get latest match ID
         url = f"https://{regional_cluster}.api.riotgames.com/lol/match/v5/matches/by-puuid/{self._puuid}/ids?start=0&count=1"
@@ -427,31 +423,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                 raise UpdateFailed(f"Failed to fetch match details: {response.status}")
             data = await response.json()
             return data
-
-    async def _async_update_data(self):
-        if self._puuid is None:
-            await self._fetch_summoner_info()
-
-        latest_match_id = await self._fetch_latest_match()
-        if latest_match_id is None:
-            return {"state": "No matches found"}
-
-        match_details = await self._fetch_match_details(latest_match_id)
-        participants = match_details["info"]["participants"]
-        participant_data = next((p for p in participants if p["puuid"] == self._puuid), None)
-
-        if participant_data is None:
-            raise UpdateFailed("Player not found in match data")
-
-        return {
-            "state": "Win" if participant_data["win"] else "Loss",
-            "kills": participant_data["kills"],
-            "deaths": participant_data["deaths"],
-            "assists": participant_data["assists"],
-            "champion": participant_data["championName"],
-            "game_mode": match_details["info"]["gameMode"],
-            "match_id": latest_match_id,
-        }
-
     async def async_will_remove_from_hass(self):
-        await self._session.close()
+        """Clean up when removed from Home Assistant."""
+        if hasattr(self, '_session') and self._session and not self._session.closed:
+            await self._session.close()
