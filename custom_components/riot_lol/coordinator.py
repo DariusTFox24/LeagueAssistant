@@ -53,30 +53,48 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             # Initialize PUUID if not set
             if not self._puuid:
-                await self._fetch_account_info()
+                try:
+                    await self._fetch_account_info()
+                except UpdateFailed as err:
+                    _LOGGER.error("Failed to fetch account info: %s", err)
+                    raise
             
             # Fetch current game status
-            current_game = await self._fetch_current_game()
-            if current_game:
-                return await self._process_current_game(current_game)
+            try:
+                current_game = await self._fetch_current_game()
+                if current_game:
+                    return await self._process_current_game(current_game)
+            except Exception as err:
+                _LOGGER.warning("Error checking current game, continuing: %s", err)
             
             # If not in game, fetch latest match data
-            latest_match_data = await self._fetch_latest_match_data()
-            if latest_match_data:
-                return latest_match_data
+            try:
+                latest_match_data = await self._fetch_latest_match_data()
+                if latest_match_data:
+                    return latest_match_data
+            except Exception as err:
+                _LOGGER.warning("Error fetching match data, continuing: %s", err)
             
             # Fetch ranked stats as fallback
-            ranked_stats = await self._fetch_ranked_stats()
+            try:
+                ranked_stats = await self._fetch_ranked_stats()
+            except Exception as err:
+                _LOGGER.warning("Error fetching ranked stats: %s", err)
+                ranked_stats = {"rank": "Unknown"}
             
             self._consecutive_errors = 0  # Reset error counter on success
             return {
-                "state": GAME_STATES["online"],
+                "state": GAME_STATES.get("online", "Online"),
                 "last_updated": datetime.now().isoformat(),
                 **ranked_stats,
             }
             
+        except UpdateFailed:
+            # Re-raise UpdateFailed exceptions (these are expected)
+            raise
         except Exception as err:
             self._consecutive_errors += 1
+            _LOGGER.error("Unexpected error in coordinator update: %s", err, exc_info=True)
             
             if self._consecutive_errors >= self._max_errors:
                 _LOGGER.error(
@@ -107,8 +125,12 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
                     data = await response.json()
-                    self._puuid = data["puuid"]
-                    _LOGGER.debug("Retrieved PUUID: %s", self._puuid[:8] + "...")
+                    puuid = data.get("puuid")
+                    if puuid:
+                        self._puuid = puuid
+                        _LOGGER.debug("Retrieved PUUID: %s", self._puuid[:8] + "...")
+                    else:
+                        raise UpdateFailed("No PUUID found in account response")
                 elif response.status == 429:
                     raise UpdateFailed("Rate limit exceeded")
                 elif response.status == 401:
@@ -120,6 +142,10 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     
         except ClientResponseError as err:
             raise UpdateFailed(f"HTTP error fetching account info: {err}")
+        except KeyError as err:
+            raise UpdateFailed(f"Missing expected field in account response: {err}")
+        except Exception as err:
+            raise UpdateFailed(f"Unexpected error fetching account info: {err}")
 
     async def _fetch_summoner_info(self) -> None:
         """Fetch summoner info using PUUID."""
@@ -134,8 +160,12 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
                     data = await response.json()
-                    self._summoner_id = data["id"]
-                    _LOGGER.debug("Retrieved summoner ID: %s", self._summoner_id)
+                    summoner_id = data.get("id")
+                    if summoner_id:
+                        self._summoner_id = summoner_id
+                        _LOGGER.debug("Retrieved summoner ID: %s", self._summoner_id)
+                    else:
+                        raise UpdateFailed("No summoner ID found in response")
                 elif response.status == 429:
                     raise UpdateFailed("Rate limit exceeded")
                 else:
@@ -143,13 +173,20 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     
         except ClientResponseError as err:
             raise UpdateFailed(f"HTTP error fetching summoner info: {err}")
+        except KeyError as err:
+            raise UpdateFailed(f"Missing expected field in summoner response: {err}")
+        except Exception as err:
+            raise UpdateFailed(f"Unexpected error fetching summoner info: {err}")
 
     async def _fetch_current_game(self) -> Optional[Dict[str, Any]]:
         """Check if player is currently in a game."""
-        if not self._puuid:
+        if not self._summoner_id:
+            await self._fetch_summoner_info()
+            
+        if not self._summoner_id:
             return None
             
-        url = f"https://{self._region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._puuid}"
+        url = f"https://{self._region}.api.riotgames.com/lol/spectator/v4/active-games/by-summoner/{self._summoner_id}"
         headers = {"X-Riot-Token": self._api_key}
         timeout = ClientTimeout(total=10)
         
@@ -170,29 +207,43 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         except ClientResponseError as err:
             _LOGGER.warning("HTTP error checking current game: %s", err)
             return None
+        except Exception as err:
+            _LOGGER.warning("Unexpected error checking current game: %s", err)
+            return None
 
     async def _process_current_game(self, game_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process current game data."""
-        # Find the player in the participants
-        participant = None
-        for p in game_data.get("participants", []):
-            if p.get("puuid") == self._puuid:
-                participant = p
-                break
-        
-        if not participant:
-            raise UpdateFailed("Player not found in current game data")
-        
-        return {
-            "state": GAME_STATES["in_game"],
-            "game_mode": game_data.get("gameMode", "Unknown"),
-            "queue_type": game_data.get("gameQueueConfigId"),
-            "champion": participant.get("championName", "Unknown"),
-            "game_start_time": game_data.get("gameStartTime", 0),
-            "game_length": game_data.get("gameLength", 0),
-            "last_updated": datetime.now().isoformat(),
-            "match_id": str(game_data.get("gameId", "")),
-        }
+        try:
+            # Find the player in the participants
+            participant = None
+            for p in game_data.get("participants", []):
+                if p.get("puuid") == self._puuid or p.get("summonerId") == self._summoner_id:
+                    participant = p
+                    break
+            
+            if not participant:
+                # Try to find by summoner name as fallback
+                for p in game_data.get("participants", []):
+                    if p.get("summonerName", "").lower() == self._game_name.lower():
+                        participant = p
+                        break
+            
+            if not participant:
+                raise UpdateFailed("Player not found in current game data")
+            
+            return {
+                "state": GAME_STATES.get("in_game", "In Game"),
+                "game_mode": game_data.get("gameMode", "Unknown"),
+                "queue_type": game_data.get("gameQueueConfigId"),
+                "champion": participant.get("championName", "Unknown"),
+                "game_start_time": game_data.get("gameStartTime", 0),
+                "game_length": game_data.get("gameLength", 0),
+                "last_updated": datetime.now().isoformat(),
+                "match_id": str(game_data.get("gameId", "")),
+            }
+        except Exception as err:
+            _LOGGER.error("Error processing current game data: %s", err)
+            raise UpdateFailed(f"Failed to process current game: {err}")
 
     async def _fetch_latest_match_data(self) -> Optional[Dict[str, Any]]:
         """Fetch data from the latest match."""
