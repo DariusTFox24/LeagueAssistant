@@ -125,12 +125,18 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
                     data = await response.json()
+                    _LOGGER.debug("Account API response for %s#%s: %s", 
+                                self._game_name, self._tag_line, 
+                                {k: v[:8] + "..." if k == "puuid" and v else v for k, v in data.items()})
+                    
                     puuid = data.get("puuid")
-                    if puuid:
+                    if puuid and len(puuid) > 0:
                         self._puuid = puuid
                         _LOGGER.debug("Retrieved PUUID: %s", self._puuid[:8] + "...")
                     else:
-                        raise UpdateFailed("No PUUID found in account response")
+                        available_fields = list(data.keys()) if data else []
+                        _LOGGER.error("Account API response missing valid 'puuid' field. Available fields: %s", available_fields)
+                        raise UpdateFailed(f"No PUUID found in account response. Available fields: {available_fields}")
                 elif response.status == 429:
                     raise UpdateFailed("Rate limit exceeded")
                 elif response.status == 401:
@@ -152,22 +158,37 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         if not self._puuid:
             await self._fetch_account_info()
             
+        if not self._puuid or len(self._puuid) < 10:
+            raise UpdateFailed(f"Invalid PUUID: {self._puuid}. Cannot fetch summoner info.")
+            
         url = f"https://{self._region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{self._puuid}"
         headers = {"X-Riot-Token": self._api_key}
         timeout = ClientTimeout(total=10)
+        
+        _LOGGER.debug("Fetching summoner info for PUUID %s in region %s", self._puuid[:8] + "...", self._region)
         
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
                     data = await response.json()
+                    _LOGGER.debug("Summoner API response: %s", {k: v for k, v in data.items() if k != 'accountId'})
+                    
+                    # Check for summoner ID in response
                     summoner_id = data.get("id")
                     if summoner_id:
                         self._summoner_id = summoner_id
                         _LOGGER.debug("Retrieved summoner ID: %s", self._summoner_id)
                     else:
-                        raise UpdateFailed("No summoner ID found in response")
+                        # Log the full response to debug what's missing
+                        available_fields = list(data.keys()) if data else []
+                        _LOGGER.error("Summoner API response missing 'id' field. Available fields: %s", available_fields)
+                        raise UpdateFailed(f"No summoner ID found in response. Available fields: {available_fields}")
+                elif response.status == 404:
+                    raise UpdateFailed(f"Summoner not found for PUUID {self._puuid[:8]}... in region {self._region}")
                 elif response.status == 429:
                     raise UpdateFailed("Rate limit exceeded")
+                elif response.status == 401:
+                    raise UpdateFailed("Invalid API key for summoner lookup")
                 else:
                     raise UpdateFailed(f"API error fetching summoner: {response.status}")
                     

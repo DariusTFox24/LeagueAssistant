@@ -145,7 +145,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
         """Initialize options flow."""
-        self.config_entry = config_entry
+        # Note: self.config_entry is automatically set by parent class
+        # No need to explicitly set it (deprecated in HA 2025.12)
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
