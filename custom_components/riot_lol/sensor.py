@@ -32,8 +32,8 @@ async def async_setup_entry(
         RiotLoLKDASensor(coordinator, config_entry),
         RiotLoLChampionSensor(coordinator, config_entry),
         RiotLoLRankSensor(coordinator, config_entry),
-        RiotLoLMatchHistorySensor(coordinator, config_entry),
         RiotLoLLatestMatchSensor(coordinator, config_entry),
+        RiotLoLLevelSensor(coordinator, config_entry),
     ]
     
     async_add_entities(sensors, True)
@@ -110,9 +110,15 @@ class RiotLoLKillsSensor(RiotLoLBaseSensor):
 
     @property
     def native_value(self):
-        """Return the kills count."""
+        """Return the kills count from latest match."""
         if not self.coordinator.data:
             return 0
+        
+        # Use latest match data primarily, fallback to current game data
+        latest_kills = self.coordinator.data.get("latest_kills")
+        if latest_kills is not None:
+            return latest_kills
+        
         return self.coordinator.data.get("kills", 0)
 
 
@@ -128,9 +134,15 @@ class RiotLoLDeathsSensor(RiotLoLBaseSensor):
 
     @property
     def native_value(self):
-        """Return the deaths count."""
+        """Return the deaths count from latest match."""
         if not self.coordinator.data:
             return 0
+        
+        # Use latest match data primarily, fallback to current game data
+        latest_deaths = self.coordinator.data.get("latest_deaths")
+        if latest_deaths is not None:
+            return latest_deaths
+        
         return self.coordinator.data.get("deaths", 0)
 
 
@@ -146,9 +158,15 @@ class RiotLoLAssistsSensor(RiotLoLBaseSensor):
 
     @property
     def native_value(self):
-        """Return the assists count."""
+        """Return the assists count from latest match."""
         if not self.coordinator.data:
             return 0
+        
+        # Use latest match data primarily, fallback to current game data
+        latest_assists = self.coordinator.data.get("latest_assists")
+        if latest_assists is not None:
+            return latest_assists
+        
         return self.coordinator.data.get("assists", 0)
 
 
@@ -163,9 +181,14 @@ class RiotLoLKDASensor(RiotLoLBaseSensor):
 
     @property
     def native_value(self):
-        """Return the KDA ratio."""
+        """Return the KDA ratio from latest match."""
         if not self.coordinator.data:
             return 0.0
+        
+        # Use latest match data primarily, fallback to current game data
+        latest_kda = self.coordinator.data.get("latest_kda")
+        if latest_kda is not None:
+            return latest_kda
         
         # Use pre-calculated KDA from coordinator, fallback to manual calculation
         kda = self.coordinator.data.get("kda")
@@ -194,9 +217,15 @@ class RiotLoLChampionSensor(RiotLoLBaseSensor):
 
     @property
     def native_value(self):
-        """Return the current champion."""
+        """Return the current or latest match champion."""
         if not self.coordinator.data:
             return "Unknown"
+        
+        # Use latest match data primarily, fallback to current game data
+        latest_champion = self.coordinator.data.get("latest_champion")
+        if latest_champion:
+            return latest_champion
+        
         return self.coordinator.data.get("champion", "Unknown")
 
     @property
@@ -243,71 +272,39 @@ class RiotLoLRankSensor(RiotLoLBaseSensor):
         }
 
 
-class RiotLoLMatchHistorySensor(RiotLoLBaseSensor):
-    """Sensor for match history (last 10 match IDs)."""
-
-    def __init__(self, coordinator: RiotLoLDataUpdateCoordinator, config_entry: ConfigEntry):
-        """Initialize the match history sensor."""
-        super().__init__(coordinator, config_entry, "match_history")
-        self._attr_name = "Match History"
-        self._attr_icon = "mdi:history"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @property
-    def native_value(self):
-        """Return the number of matches in history."""
-        match_history = self.coordinator.match_history
-        if not match_history:
-            return 0
-        return len(match_history)
-
-    @property
-    def extra_state_attributes(self):
-        """Return match history details."""
-        match_history = self.coordinator.match_history
-        if not match_history:
-            return {"match_ids": []}
-        
-        return {
-            "match_ids": match_history,
-            "latest_match_id": match_history[0] if match_history else None,
-            "total_matches": len(match_history),
-        }
-
-
 class RiotLoLLatestMatchSensor(RiotLoLBaseSensor):
-    """Sensor for latest match detailed stats."""
+    """Sensor for latest match ID."""
 
     def __init__(self, coordinator: RiotLoLDataUpdateCoordinator, config_entry: ConfigEntry):
         """Initialize the latest match sensor."""
         super().__init__(coordinator, config_entry, "latest_match")
-        self._attr_name = "Latest Match"
-        self._attr_icon = "mdi:trophy"
+        self._attr_name = "Latest Match ID"
+        self._attr_icon = "mdi:identifier"
 
     @property
     def native_value(self):
-        """Return the match result (Win/Loss/Unknown)."""
-        latest_match = self.coordinator.latest_match_data
-        if not latest_match:
+        """Return the latest match ID."""
+        if not self.coordinator.data:
             return "No matches"
         
-        win = latest_match.get("win")
-        if win is True:
-            return "Victory"
-        elif win is False:
-            return "Defeat"
-        else:
-            return "Unknown"
+        latest_match_id = self.coordinator.data.get("latest_match_id")
+        if latest_match_id:
+            return latest_match_id
+        
+        return "No matches"
 
     @property
     def extra_state_attributes(self):
-        """Return comprehensive latest match data."""
-        latest_match = self.coordinator.latest_match_data
-        if not latest_match:
+        """Return basic match information."""
+        if not self.coordinator.data:
+            return {}
+        
+        latest_match_data = self.coordinator.data.get("latest_match_data")
+        if not latest_match_data:
             return {}
         
         # Format game duration
-        duration_seconds = latest_match.get("game_duration", 0)
+        duration_seconds = latest_match_data.get("game_duration", 0)
         if duration_seconds > 0:
             minutes = duration_seconds // 60
             seconds = duration_seconds % 60
@@ -315,38 +312,27 @@ class RiotLoLLatestMatchSensor(RiotLoLBaseSensor):
         else:
             duration_formatted = "Unknown"
         
-        # Format timestamps
-        import datetime
-        start_timestamp = latest_match.get("game_start_timestamp", 0)
-        end_timestamp = latest_match.get("game_end_timestamp", 0)
-        
-        start_time = None
-        end_time = None
-        if start_timestamp > 0:
-            start_time = datetime.datetime.fromtimestamp(start_timestamp / 1000).isoformat()
-        if end_timestamp > 0:
-            end_time = datetime.datetime.fromtimestamp(end_timestamp / 1000).isoformat()
-        
         return {
-            "match_id": latest_match.get("match_id"),
-            "champion": latest_match.get("champion"),
-            "champion_level": latest_match.get("champion_level"),
-            "kills": latest_match.get("kills"),
-            "deaths": latest_match.get("deaths"),
-            "assists": latest_match.get("assists"),
-            "kda": latest_match.get("kda"),
-            "game_mode": latest_match.get("game_mode"),
-            "game_type": latest_match.get("game_type"),
-            "queue_id": latest_match.get("queue_id"),
+            "result": "Victory" if latest_match_data.get("win") else "Defeat" if latest_match_data.get("win") is False else "Unknown",
+            "game_mode": latest_match_data.get("game_mode"),
             "duration": duration_formatted,
-            "duration_seconds": duration_seconds,
-            "game_start_time": start_time,
-            "game_end_time": end_time,
-            "total_damage_dealt": latest_match.get("total_damage_dealt"),
-            "total_damage_taken": latest_match.get("total_damage_taken"),
-            "gold_earned": latest_match.get("gold_earned"),
-            "cs_total": latest_match.get("cs_total"),
-            "vision_score": latest_match.get("vision_score"),
-            "items": latest_match.get("items", []),
-            "win": latest_match.get("win"),
+            "champion": latest_match_data.get("champion"),
         }
+
+
+class RiotLoLLevelSensor(RiotLoLBaseSensor):
+    """Sensor for summoner account level."""
+
+    def __init__(self, coordinator: RiotLoLDataUpdateCoordinator, config_entry: ConfigEntry):
+        """Initialize the level sensor."""
+        super().__init__(coordinator, config_entry, "level")
+        self._attr_name = "Account Level"
+        self._attr_icon = "mdi:counter"
+        self._attr_native_unit_of_measurement = "level"
+
+    @property
+    def native_value(self):
+        """Return the summoner account level."""
+        if not self.coordinator.data:
+            return 0
+        return self.coordinator.data.get("summoner_level", 0)

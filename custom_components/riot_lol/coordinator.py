@@ -67,53 +67,36 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.error("Failed to fetch account info: %s", err)
                     raise
             
-            # Fetch current game status (requires summoner ID)
-            try:
-                current_game = await self._fetch_current_game()
-                if current_game:
-                    return await self._process_current_game(current_game)
-            except Exception as err:
-                _LOGGER.warning("Error checking current game, continuing: %s", err)
-            
-            # If not in game, fetch latest match data (uses PUUID)
-            try:
-                latest_match_data = await self._fetch_latest_match_data()
-                if latest_match_data:
-                    return latest_match_data
-            except Exception as err:
-                _LOGGER.warning("Error fetching match data, continuing: %s", err)
-            
-            # Fetch match history for the latest match sensor
+            # Fetch match history and latest match data first
             try:
                 await self._fetch_match_history()
             except Exception as err:
                 _LOGGER.warning("Error fetching match history: %s", err)
             
-            # Fetch ranked stats as fallback (uses PUUID - more reliable)
+            # Fetch current game status (requires summoner ID)
+            current_game_data = None
+            try:
+                current_game = await self._fetch_current_game()
+                if current_game:
+                    current_game_data = await self._process_current_game(current_game)
+            except Exception as err:
+                _LOGGER.warning("Error checking current game, continuing: %s", err)
+            
+            # Fetch ranked stats
+            ranked_stats = {}
             try:
                 ranked_stats = await self._fetch_ranked_stats()
             except Exception as err:
                 _LOGGER.warning("Error fetching ranked stats: %s", err)
                 ranked_stats = {"rank": "Unknown"}
             
+            # Fetch summoner level
+            summoner_level = await self._fetch_summoner_level()
+            
             self._consecutive_errors = 0  # Reset error counter on success
             
-            # Return comprehensive default data when not in game or no recent matches
-            return {
-                "state": GAME_STATES.get("online", "Online"),
-                "last_updated": datetime.now().isoformat(),
-                "game_mode": None,
-                "queue_type": None,
-                "champion": "Not in game",
-                "match_id": None,
-                "kills": 0,
-                "deaths": 0,
-                "assists": 0,
-                "kda": 0.0,
-                "match_history_count": len(self._match_history) if self._match_history else 0,
-                "latest_match_available": self._last_match_data is not None,
-                **ranked_stats,
-            }
+            # Build comprehensive data combining current game, latest match, and ranked stats
+            return self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level)
             
         except UpdateFailed:
             # Re-raise UpdateFailed exceptions (these are expected)
@@ -613,6 +596,112 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             "participant_data": participant,  # Full participant data for advanced use
             "all_participants": info.get("participants", []),  # All players in the match
         }
+
+    async def _fetch_summoner_level(self) -> int:
+        """Fetch summoner account level (not in-game champion level) using PUUID."""
+        if not self._puuid:
+            _LOGGER.warning("No PUUID available, cannot fetch summoner level")
+            return 0
+            
+        if not self._summoner_id:
+            try:
+                await self._fetch_summoner_info()
+            except UpdateFailed:
+                _LOGGER.warning("Cannot fetch summoner info for level lookup")
+                return 0
+                
+        if not self._summoner_id:
+            return 0
+            
+        url = f"https://{self._region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{self._puuid}"
+        headers = {"X-Riot-Token": self._api_key}
+        timeout = ClientTimeout(total=10)
+        
+        try:
+            async with self._session.get(url, headers=headers, timeout=timeout) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("summonerLevel", 0)
+                else:
+                    _LOGGER.warning("Error fetching summoner level: %s", response.status)
+                    return 0
+                    
+        except Exception as err:
+            _LOGGER.warning("Error fetching summoner level: %s", err)
+            return 0
+
+    def _build_comprehensive_data(self, current_game_data: Optional[Dict[str, Any]], ranked_stats: Dict[str, Any], summoner_level: int) -> Dict[str, Any]:
+        """Build comprehensive data combining current game, latest match, and other stats."""
+        # Start with base data
+        data = {
+            "last_updated": datetime.now().isoformat(),
+            "summoner_level": summoner_level,
+            **ranked_stats,
+        }
+        
+        # If in current game, prioritize current game data but supplement with latest match stats
+        if current_game_data:
+            data.update(current_game_data)
+            
+            # Add latest match stats for the stat entities
+            if self._last_match_data:
+                latest_match = self._last_match_data
+                data.update({
+                    "latest_match_id": latest_match.get("match_id"),
+                    "latest_champion": latest_match.get("champion"),
+                    "latest_kills": latest_match.get("kills", 0),
+                    "latest_deaths": latest_match.get("deaths", 0),
+                    "latest_assists": latest_match.get("assists", 0),
+                    "latest_kda": latest_match.get("kda", 0.0),
+                    "latest_win": latest_match.get("win"),
+                    "latest_match_data": latest_match,
+                })
+        else:
+            # Not in game - use latest match data as primary source
+            if self._last_match_data:
+                latest_match = self._last_match_data
+                data.update({
+                    "state": GAME_STATES.get("online", "Online"),
+                    "game_mode": latest_match.get("game_mode"),
+                    "queue_type": latest_match.get("queue_id"),
+                    "champion": latest_match.get("champion", "Unknown"),
+                    "match_id": latest_match.get("match_id"),
+                    "kills": latest_match.get("kills", 0),
+                    "deaths": latest_match.get("deaths", 0),
+                    "assists": latest_match.get("assists", 0),
+                    "kda": latest_match.get("kda", 0.0),
+                    "latest_match_id": latest_match.get("match_id"),
+                    "latest_champion": latest_match.get("champion"),
+                    "latest_kills": latest_match.get("kills", 0),
+                    "latest_deaths": latest_match.get("deaths", 0),
+                    "latest_assists": latest_match.get("assists", 0),
+                    "latest_kda": latest_match.get("kda", 0.0),
+                    "latest_win": latest_match.get("win"),
+                    "latest_match_data": latest_match,
+                })
+            else:
+                # No match data available
+                data.update({
+                    "state": GAME_STATES.get("online", "Online"),
+                    "game_mode": None,
+                    "queue_type": None,
+                    "champion": "No recent matches",
+                    "match_id": None,
+                    "kills": 0,
+                    "deaths": 0,
+                    "assists": 0,
+                    "kda": 0.0,
+                    "latest_match_id": None,
+                    "latest_champion": None,
+                    "latest_kills": 0,
+                    "latest_deaths": 0,
+                    "latest_assists": 0,
+                    "latest_kda": 0.0,
+                    "latest_win": None,
+                    "latest_match_data": None,
+                })
+        
+        return data
 
     @property
     def match_history(self) -> Optional[list]:
