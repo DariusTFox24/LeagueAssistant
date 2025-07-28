@@ -22,18 +22,20 @@ _Integration to monitor League of Legends player statistics in Home Assistant._
 ### HACS (Recommended)
 
 1. Ensure that [HACS](https://hacs.xyz/) is installed
-2. Search for "League of Legends Stats" in the integrations section
-3. Install the integration
-4. Restart Home Assistant
+2. Add this repository as a custom repository:
+   - Go to HACS → Integrations → ⋮ → Custom repositories
+   - Repository: `https://github.com/DariusTFox24/LeagueAssistant`
+   - Category: Integration
+   - Click "Add"
+3. Find "League of Legends Stats" in HACS integrations
+4. Install the integration
+5. Restart Home Assistant
 
 ### Manual Installation
 
-1. Using the tool of choice open the directory (folder) for your HA configuration (where you find `configuration.yaml`)
-2. If you do not have a `custom_components` directory (folder) there, you need to create it
-3. In the `custom_components` directory (folder) create a new folder called `riot_lol`
-4. Download _all_ the files from the `custom_components/riot_lol/` directory (folder) in this repository
-5. Place the files you downloaded in the new directory (folder) you created
-6. Restart Home Assistant
+1. Download this repository (Code → Download ZIP)
+2. Copy the `custom_components/riot_lol/` folder to your Home Assistant `custom_components/` directory
+3. Restart Home Assistant
 
 ## Configuration
 
