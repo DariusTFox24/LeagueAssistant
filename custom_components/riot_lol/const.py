@@ -11,9 +11,13 @@ CONF_RIOT_ID = "riot_id"
 
 # Default values
 DEFAULT_REGION = "eun1"  # Changed to EUNE for testing
-DEFAULT_SCAN_INTERVAL = 60   # 1 minute for more frequent updates
+DEFAULT_SCAN_INTERVAL = 90   # 1.5 minutes - reduced frequency to avoid rate limits
 MIN_SCAN_INTERVAL = 60       # 1 minute
 MAX_SCAN_INTERVAL = 3600     # 1 hour
+
+# Adaptive scan intervals based on game state
+IN_GAME_SCAN_INTERVAL = 60   # 1 minute when in game (more frequent)
+IDLE_SCAN_INTERVAL = 120     # 2 minutes when not in game (less frequent)
 
 # API endpoints and regions (Updated 2025)
 REGION_CLUSTERS = {

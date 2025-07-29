@@ -1,4 +1,5 @@
 """Data update coordinator for Riot LoL integration."""
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
@@ -9,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL, QUEUE_TYPES, GAME_MODES, CHAMPION_NAMES, MAP_NAMES, GAME_TYPES
+from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL, QUEUE_TYPES, GAME_MODES, CHAMPION_NAMES, MAP_NAMES, GAME_TYPES, IN_GAME_SCAN_INTERVAL, IDLE_SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Error fetching match history: %s", err)
             
-            # Check player status and current game
+            # Check player status and current game with improved stability
             player_status = None
             current_game_data = None
             try:
@@ -140,12 +141,44 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                                current_game_data.get("game_mode"), 
                                current_game_data.get("champion"))
                 else:
-                    _LOGGER.debug("Player not in current game, checking recent activity...")
-                    player_status = await self._fetch_player_status()
+                    # Only check recent activity if we're confident the player is not in game
+                    # Add stability check - if we recently detected in-game, be more conservative
+                    recent_in_game = (hasattr(self, '_last_successful_data') and 
+                                    self._last_successful_data.get("state") == "In Game" and
+                                    hasattr(self, '_last_in_game_time') and
+                                    (datetime.now() - self._last_in_game_time).total_seconds() < 120)  # 2 minutes
+                    
+                    if recent_in_game:
+                        _LOGGER.info("Recently detected in-game but current game check failed, being conservative")
+                        # Try one more time with longer timeout before falling back
+                        _LOGGER.debug("Attempting secondary current game check...")
+                        current_game = await self._fetch_current_game()
+                        if current_game:
+                            _LOGGER.info("Secondary check found current game!")
+                            current_game_data = await self._process_current_game(current_game)
+                            player_status = "in_game"
+                        else:
+                            _LOGGER.debug("Secondary check also failed, proceeding with recent activity check...")
+                            player_status = await self._fetch_player_status()
+                    else:
+                        _LOGGER.debug("Player not in current game, checking recent activity...")
+                        player_status = await self._fetch_player_status()
+                    
                     _LOGGER.info("Player status: %s", player_status)
             except Exception as err:
                 _LOGGER.warning("Error checking player status: %s", err)
-                player_status = "unknown"
+                # If we had a recent successful state, maintain it during errors
+                if (hasattr(self, '_last_successful_data') and 
+                    self._last_successful_data.get("state") in ["In Game"] and
+                    hasattr(self, '_last_in_game_time') and
+                    (datetime.now() - self._last_in_game_time).total_seconds() < 180):  # 3 minutes
+                    _LOGGER.warning("Error occurred but maintaining recent 'In Game' state")
+                    player_status = "in_game"
+                    current_game_data = self._last_successful_data.copy()
+                    current_game_data["last_updated"] = datetime.now().isoformat()
+                    current_game_data["_error_fallback"] = True
+                else:
+                    player_status = "unknown"
             
             # Fetch ranked stats
             ranked_stats = {}
@@ -165,6 +198,22 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             # Build comprehensive data combining current game, latest match, and ranked stats
             _LOGGER.debug("Building comprehensive data...")
             result = self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level, player_status)
+            
+            # Adaptive scan interval based on game state
+            current_state = result.get("state")
+            if current_state == "In Game":
+                # More frequent updates when in game
+                new_interval = timedelta(seconds=IN_GAME_SCAN_INTERVAL)
+                _LOGGER.debug("Player in game, setting update interval to %d seconds", IN_GAME_SCAN_INTERVAL)
+            else:
+                # Less frequent updates when not in game
+                new_interval = timedelta(seconds=IDLE_SCAN_INTERVAL)
+                _LOGGER.debug("Player not in game, setting update interval to %d seconds", IDLE_SCAN_INTERVAL)
+            
+            # Update the coordinator's update interval if it changed significantly
+            if abs((new_interval - self.update_interval).total_seconds()) > 30:
+                self.update_interval = new_interval
+                _LOGGER.info("Updated scan interval to %d seconds based on game state", new_interval.total_seconds())
             
             # Cache successful result
             self._last_successful_data = result.copy()
@@ -321,44 +370,114 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Unexpected error fetching summoner info: %s", err)
 
     async def _fetch_current_game(self) -> Optional[Dict[str, Any]]:
-        """Check if player is currently in a game using PUUID (modern approach)."""
+        """Check if player is currently in a game using PUUID (modern approach) with improved resilience."""
         if not self._puuid:
             _LOGGER.debug("No PUUID available, skipping current game check")
             return None
             
         url = f"https://{self._region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._puuid}"
         headers = self._get_headers()
-        timeout = ClientTimeout(total=10)
+        timeout = ClientTimeout(total=15)  # Increased timeout
         
         _LOGGER.debug("Checking current game with PUUID endpoint: %s", url.replace(self._puuid, self._puuid[:8] + "..."))
         
-        try:
-            async with self._session.get(url, headers=headers, timeout=timeout) as response:
-                if response.status == 200:
-                    game_data = await response.json()
-                    _LOGGER.info("Player is currently in game (PUUID endpoint)")
-                    return game_data
-                elif response.status == 404:
-                    # Not in game - this is normal
-                    _LOGGER.debug("Player is not currently in game (PUUID endpoint)")
-                    return None
-                elif response.status == 429:
-                    _LOGGER.warning("Rate limit exceeded for current game check")
-                    return None
+        # Try with retry logic for temporary failures
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                async with self._session.get(url, headers=headers, timeout=timeout) as response:
+                    if response.status == 200:
+                        game_data = await response.json()
+                        _LOGGER.info("Player is currently in game (PUUID endpoint) - attempt %d", attempt + 1)
+                        # Cache the successful game detection
+                        if hasattr(self, '_last_game_check_time'):
+                            self._last_in_game_time = datetime.now()
+                        return game_data
+                    elif response.status == 404:
+                        # Not in game - this is definitive
+                        _LOGGER.debug("Player is not currently in game (PUUID endpoint) - attempt %d", attempt + 1)
+                        return None
+                    elif response.status == 429:
+                        if attempt < max_retries:
+                            _LOGGER.warning("Rate limit exceeded for current game check, retrying in %d seconds...", (attempt + 1) * 2)
+                            await asyncio.sleep((attempt + 1) * 2)  # Progressive backoff
+                            continue
+                        else:
+                            _LOGGER.warning("Rate limit exceeded for current game check after %d attempts", max_retries + 1)
+                            # If we recently detected a game and now hit rate limit, assume still in game
+                            if hasattr(self, '_last_in_game_time') and (datetime.now() - self._last_in_game_time).total_seconds() < 300:  # 5 minutes
+                                _LOGGER.info("Rate limited but recently was in game, maintaining 'In Game' state")
+                                return {"_cached_game_state": True}  # Special marker for cached state
+                            return None
+                    else:
+                        if attempt < max_retries:
+                            _LOGGER.warning("Error checking current game (status %d), retrying...", response.status)
+                            await asyncio.sleep(1)
+                            continue
+                        else:
+                            _LOGGER.warning("Error checking current game after %d attempts: %s", max_retries + 1, response.status)
+                            return None
+                        
+            except asyncio.TimeoutError:
+                if attempt < max_retries:
+                    _LOGGER.warning("Timeout checking current game, retrying...")
+                    await asyncio.sleep(1)
+                    continue
                 else:
-                    _LOGGER.debug("Error checking current game: %s", response.status)
+                    _LOGGER.warning("Timeout checking current game after %d attempts", max_retries + 1)
+                    # If we recently detected a game and now timeout, assume still in game
+                    if hasattr(self, '_last_in_game_time') and (datetime.now() - self._last_in_game_time).total_seconds() < 300:  # 5 minutes
+                        _LOGGER.info("Timeout but recently was in game, maintaining 'In Game' state")
+                        return {"_cached_game_state": True}  # Special marker for cached state
                     return None
-                    
-        except ClientResponseError as err:
-            _LOGGER.warning("HTTP error checking current game: %s", err)
-            return None
-        except Exception as err:
-            _LOGGER.warning("Unexpected error checking current game: %s", err)
-            return None
+            except ClientResponseError as err:
+                if attempt < max_retries:
+                    _LOGGER.warning("HTTP error checking current game: %s, retrying...", err)
+                    await asyncio.sleep(1)
+                    continue
+                else:
+                    _LOGGER.warning("HTTP error checking current game after %d attempts: %s", max_retries + 1, err)
+                    return None
+            except Exception as err:
+                if attempt < max_retries:
+                    _LOGGER.warning("Unexpected error checking current game: %s, retrying...", err)
+                    await asyncio.sleep(1)
+                    continue
+                else:
+                    _LOGGER.warning("Unexpected error checking current game after %d attempts: %s", max_retries + 1, err)
+                    return None
+        
+        return None
 
     async def _process_current_game(self, game_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process current game data."""
         try:
+            # Handle cached state marker for resilience during API issues
+            if game_data.get("_cached_game_state"):
+                _LOGGER.info("Using cached 'In Game' state due to API issues")
+                # Return minimal in-game state if we can't get fresh data
+                if hasattr(self, '_last_successful_data') and self._last_successful_data.get("state") == "In Game":
+                    # Use last known game data but update timestamp
+                    cached_data = self._last_successful_data.copy()
+                    cached_data["last_updated"] = datetime.now().isoformat()
+                    cached_data["_is_cached"] = True
+                    return cached_data
+                else:
+                    # Fallback minimal state
+                    return {
+                        "state": GAME_STATES.get("in_game", "In Game"),
+                        "game_mode": "Unknown (API Issue)",
+                        "queue_type": "Unknown (API Issue)",
+                        "champion": "Unknown (API Issue)",
+                        "last_updated": datetime.now().isoformat(),
+                        "_is_cached": True,
+                        # Default values for required fields
+                        "kills": 0,
+                        "deaths": 0,
+                        "assists": 0,
+                        "kda": 0.0,
+                    }
+            
             # Find the player in the participants
             participant = None
             participants = game_data.get("participants", [])
