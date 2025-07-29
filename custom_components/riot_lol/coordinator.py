@@ -79,18 +79,30 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Error fetching match history: %s", err)
             
-            # Fetch current game status (requires summoner ID)
+            # Check player online status and current game
+            player_status = None
             current_game_data = None
             try:
-                _LOGGER.debug("Checking current game status...")
-                current_game = await self._fetch_current_game()
-                if current_game:
-                    _LOGGER.info("Player is currently in game")
-                    current_game_data = await self._process_current_game(current_game)
-                else:
-                    _LOGGER.debug("Player is not in game")
+                _LOGGER.debug("Checking player status...")
+                player_status = await self._fetch_player_status()
+                _LOGGER.info("Player status: %s", player_status)
+                
+                # If player is online, check for current game
+                if player_status in ["online", "in_game"]:
+                    current_game = await self._fetch_current_game()
+                    if current_game:
+                        _LOGGER.info("Player is currently in League of Legends game")
+                        current_game_data = await self._process_current_game(current_game)
+                        player_status = "in_game"
+                    elif player_status == "in_game":
+                        # Player might be in other Riot games
+                        _LOGGER.debug("Player appears to be in game but not League - checking other games")
+                        other_game = await self._check_other_riot_games()
+                        if other_game:
+                            player_status = f"in_{other_game}"
             except Exception as err:
-                _LOGGER.warning("Error checking current game, continuing: %s", err)
+                _LOGGER.warning("Error checking player status: %s", err)
+                player_status = "unknown"
             
             # Fetch ranked stats
             ranked_stats = {}
@@ -109,7 +121,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             
             # Build comprehensive data combining current game, latest match, and ranked stats
             _LOGGER.debug("Building comprehensive data...")
-            result = self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level)
+            result = self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level, player_status)
             
             # Cache successful result
             self._last_successful_data = result.copy()
@@ -497,6 +509,57 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             
         return {"rank": "Unknown"}
 
+    async def _fetch_player_status(self) -> str:
+        """Fetch player status based on recent activity."""
+        # 1. Check if currently in a League game
+        try:
+            current_game = await self._fetch_current_game()
+            if current_game:
+                _LOGGER.info("Player is currently in League game")
+                return "in_game"
+        except Exception as err:
+            _LOGGER.debug("Error checking current game: %s", err)
+        
+        # 2. Check recent activity from last match
+        if self._last_match_data:
+            last_match_timestamp = self._last_match_data.get("game_end_timestamp", 0)
+            if last_match_timestamp > 0:
+                import time
+                current_time = int(time.time() * 1000)  # Convert to milliseconds
+                time_diff_hours = (current_time - last_match_timestamp) / (1000 * 60 * 60)  # Convert to hours
+                
+                if time_diff_hours <= 4:
+                    _LOGGER.info("Last match was %.1f hours ago - Recently Played", time_diff_hours)
+                    return "recently_played"
+                else:
+                    _LOGGER.info("Last match was %.1f hours ago - Touching Grass", time_diff_hours)
+                    return "touching_grass"
+        
+        # 3. If no match data available, check if we have any match history
+        if self._match_history and len(self._match_history) > 0:
+            # We have match history but no recent match data processed yet
+            # Default to recently played until we get match details
+            _LOGGER.debug("Have match history but no processed match data yet")
+            return "recently_played"
+        
+        # 4. No match data at all - probably touching grass
+        _LOGGER.debug("No match history found - likely touching grass")
+        return "touching_grass"
+
+    async def _check_other_riot_games(self) -> Optional[str]:
+        """Check if player is in other Riot games (TFT, Valorant)."""
+        # Note: This is a placeholder for future enhancement
+        # The Riot API doesn't currently provide cross-game status easily
+        # For now, we can only reliably detect League of Legends games
+        
+        # Future implementation could check:
+        # - TFT active games API (if available)
+        # - Valorant status (if API becomes available)
+        # - Recent match history from other games
+        
+        _LOGGER.debug("Cross-game detection not yet implemented")
+        return None
+
     async def _fetch_match_history(self) -> None:
         """Fetch the last 10 match IDs and detailed data for the latest match."""
         if not self._puuid:
@@ -669,7 +732,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Error fetching summoner level: %s", err)
             return 0
 
-    def _build_comprehensive_data(self, current_game_data: Optional[Dict[str, Any]], ranked_stats: Dict[str, Any], summoner_level: int) -> Dict[str, Any]:
+    def _build_comprehensive_data(self, current_game_data: Optional[Dict[str, Any]], ranked_stats: Dict[str, Any], summoner_level: int, player_status: str = "unknown") -> Dict[str, Any]:
         """Build comprehensive data combining current game, latest match, and other stats."""
         # Start with base data
         data = {
@@ -678,9 +741,9 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             **ranked_stats,
         }
         
-        # If in current game, prioritize current game data but supplement with latest match stats
+        # Determine the appropriate state based on player status and current game data
         if current_game_data:
-            _LOGGER.info("Player is in game - using current game data")
+            _LOGGER.info("Player is in League of Legends game")
             data.update(current_game_data)
             # Ensure state is set to "In Game"
             data["state"] = GAME_STATES.get("in_game", "In Game")
@@ -699,9 +762,20 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     "latest_match_data": latest_match,
                 })
         else:
-            _LOGGER.debug("Player is not in game - using latest match data")
-            # Not in game - use latest match data as primary source
-            data["state"] = GAME_STATES.get("online", "Online")
+            # Not in League game - use player status to determine state
+            _LOGGER.debug("Player is not in League game - status: %s", player_status)
+            
+            # Map player status to game state
+            state_map = {
+                "online": GAME_STATES.get("online", "Online"),
+                "offline": GAME_STATES.get("offline", "Offline"),
+                "idle": GAME_STATES.get("idle", "Idle"),
+                "in_tft": GAME_STATES.get("in_tft", "In TFT"),
+                "in_valorant": GAME_STATES.get("in_valorant", "In Valorant"),
+                "unknown": GAME_STATES.get("unknown", "Unknown"),
+            }
+            
+            data["state"] = state_map.get(player_status, GAME_STATES.get("unknown", "Unknown"))
             if self._last_match_data:
                 latest_match = self._last_match_data
                 data.update({
