@@ -143,6 +143,22 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.debug("Player not in current game, checking recent activity...")
                     player_status = await self._fetch_player_status()
+                    
+                    # Double-check: If previous state was "In Game" and now it's "Played Recently",
+                    # wait a moment and check again to ensure the game actually ended
+                    if (hasattr(self, '_last_successful_data') and self._last_successful_data and 
+                        self._last_successful_data.get("state") == "In Game" and 
+                        player_status == "recently_played"):
+                        _LOGGER.info("Status changed from 'In Game' to 'Played Recently' - double-checking...")
+                        await asyncio.sleep(3)  # Wait 3 seconds
+                        double_check_game = await self._fetch_current_game()
+                        if double_check_game:
+                            _LOGGER.info("Double-check found player still in game - keeping 'In Game' status")
+                            current_game_data = await self._process_current_game(double_check_game)
+                            player_status = "in_game"
+                        else:
+                            _LOGGER.info("Double-check confirmed game ended - status is 'Played Recently'")
+                    
                     _LOGGER.info("Player status: %s", player_status)
             except Exception as err:
                 _LOGGER.warning("Error checking player status: %s", err)
@@ -618,22 +634,29 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                         
                         return {
                             "rank": f"{solo_queue.get('tier', 'Unranked')} {solo_queue.get('rank', '')}".strip(),
-                            "tier": solo_queue.get("tier", "Unranked"),
-                            "division": solo_queue.get("rank", ""),
-                            "lp": solo_queue.get("leaguePoints", 0),
                             "wins": wins,
                             "losses": losses,
                             "win_rate": round(win_rate, 1),
+                            "league_points": solo_queue.get("leaguePoints", 0),
                         }
                     else:
-                        _LOGGER.info("No RANKED_SOLO_5x5 queue found in response")
                         return {"rank": "Unranked"}
                 elif response.status == 404:
-                    _LOGGER.info("No ranked data found for player (likely unranked)")
+                    _LOGGER.info("No ranked data found (unranked player)")
                     return {"rank": "Unranked"}
+                elif response.status == 429:
+                    _LOGGER.warning("Rate limit exceeded for ranked stats")
+                    return {"rank": "Rate Limited"}
                 else:
                     _LOGGER.warning("Error fetching ranked stats: %s", response.status)
                     return {"rank": "Unknown"}
+                    
+        except ClientResponseError as err:
+            _LOGGER.warning("HTTP error fetching ranked stats: %s", err)
+            return {"rank": "Error"}
+        except Exception as err:
+            _LOGGER.warning("Unexpected error fetching ranked stats: %s", err)
+            return {"rank": "Unknown"}
                     
         except ClientResponseError as err:
             _LOGGER.warning("HTTP error fetching ranked stats: %s", err)
