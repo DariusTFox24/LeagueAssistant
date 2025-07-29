@@ -109,8 +109,10 @@ class RiotLoLGameStateSensor(RiotLoLBaseSensor):
                 "map_name": self.coordinator.data.get("map_name"),
                 "map_id": self.coordinator.data.get("map_id"),
                 "game_type": self.coordinator.data.get("game_type"),
-                "game_start_time": self.coordinator.data.get("game_start_time"),
-                "game_length": self.coordinator.data.get("game_length"),
+                "game_start_time": self.coordinator.data.get("game_start_time_formatted"),  # Human readable
+                "game_duration": self.coordinator.data.get("game_duration"),  # Human readable
+                "game_start_time_raw": self.coordinator.data.get("game_start_time"),  # Raw epoch for automations
+                "game_length_raw": self.coordinator.data.get("game_length"),  # Raw seconds for automations
             })
             
         return attributes

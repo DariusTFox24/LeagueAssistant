@@ -97,7 +97,8 @@ MAP_NAMES = {
 # Game type mappings  
 GAME_TYPES = {
     "CUSTOM_GAME": "Custom Game",
-    "MATCHED_GAME": "Matchmade Game", 
+    "MATCHED_GAME": "Matchmade Game",
+    "MATCHED": "Matchmade Game",  # Alternative API response
     "TUTORIAL_GAME": "Tutorial"
 }
 

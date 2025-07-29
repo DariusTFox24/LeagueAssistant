@@ -14,6 +14,32 @@ from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL, QUEUE_TY
 _LOGGER = logging.getLogger(__name__)
 
 
+def format_game_duration(seconds: int) -> str:
+    """Format game duration from seconds to human readable format."""
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:  # Less than 1 hour
+        minutes = seconds // 60
+        remaining_seconds = seconds % 60
+        return f"{minutes}m {remaining_seconds}s"
+    else:  # 1 hour or more
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        remaining_seconds = seconds % 60
+        return f"{hours}h {minutes}m {remaining_seconds}s"
+
+
+def format_game_start_time(epoch_ms: int) -> str:
+    """Format game start time from epoch milliseconds to human readable format."""
+    try:
+        # Convert milliseconds to seconds
+        timestamp = epoch_ms / 1000
+        dt = datetime.fromtimestamp(timestamp)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError):
+        return "Unknown"
+
+
 class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
     """Class to manage fetching Riot LoL data."""
 
@@ -388,6 +414,8 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             raw_game_mode = game_data.get("gameMode", "Unknown")
             map_id = game_data.get("mapId", 0)
             game_type = game_data.get("gameType", "Unknown")
+            game_start_time_ms = game_data.get("gameStartTime", 0)
+            game_length_seconds = game_data.get("gameLength", 0)
             
             # Map to human-readable names
             queue_name = QUEUE_TYPES.get(queue_id, f"Queue {queue_id}")
@@ -395,8 +423,12 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             map_name = MAP_NAMES.get(map_id, f"Map {map_id}")
             game_type_name = GAME_TYPES.get(game_type, game_type)
             
-            _LOGGER.info("Current game: %s (Queue %d: %s), Champion: %s (ID: %d), Map: %s", 
-                        game_mode_name, queue_id, queue_name, champion_name, champion_id, map_name)
+            # Format times to human-readable
+            game_start_time_formatted = format_game_start_time(game_start_time_ms)
+            game_duration_formatted = format_game_duration(game_length_seconds)
+            
+            _LOGGER.info("Current game: %s (Queue %d: %s), Champion: %s (ID: %d), Map: %s, Duration: %s", 
+                        game_mode_name, queue_id, queue_name, champion_name, champion_id, map_name, game_duration_formatted)
             
             return {
                 "state": GAME_STATES.get("in_game", "In Game"),
@@ -408,8 +440,10 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                 "game_type": game_type_name,
                 "champion": champion_name,
                 "champion_id": champion_id,
-                "game_start_time": game_data.get("gameStartTime", 0),
-                "game_length": game_data.get("gameLength", 0),
+                "game_start_time": game_start_time_ms,  # Keep raw for calculations
+                "game_start_time_formatted": game_start_time_formatted,  # Human readable
+                "game_length": game_length_seconds,  # Keep raw for calculations
+                "game_duration": game_duration_formatted,  # Human readable
                 "last_updated": datetime.now().isoformat(),
                 "match_id": str(game_data.get("gameId", "")),
                 # Current game doesn't have kill/death stats, set defaults
