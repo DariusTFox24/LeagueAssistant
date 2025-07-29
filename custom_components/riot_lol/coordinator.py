@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL
+from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL, QUEUE_TYPES, GAME_MODES, CHAMPION_NAMES, MAP_NAMES, GAME_TYPES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -335,38 +335,79 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             # Find the player in the participants
             participant = None
-            for p in game_data.get("participants", []):
-                if p.get("puuid") == self._puuid or p.get("summonerId") == self._summoner_id:
+            participants = game_data.get("participants", [])
+            _LOGGER.debug("Looking for player in %d participants", len(participants))
+            _LOGGER.debug("Searching for PUUID: %s, Summoner ID: %s, Game Name: %s", 
+                         self._puuid[:8] + "..." if self._puuid else "None",
+                         self._summoner_id or "None", 
+                         self._game_name)
+            
+            # Primary search by PUUID (most reliable)
+            for p in participants:
+                if self._puuid and p.get("puuid") == self._puuid:
                     participant = p
+                    _LOGGER.info("Found player by PUUID match")
+                    break
+                elif self._summoner_id and p.get("summonerId") == self._summoner_id:
+                    participant = p
+                    _LOGGER.info("Found player by Summoner ID match")
                     break
             
             if not participant:
                 # Try to find by summoner name as fallback
-                for p in game_data.get("participants", []):
-                    if p.get("summonerName", "").lower() == self._game_name.lower():
+                _LOGGER.debug("Primary match failed, trying summoner name fallback")
+                for i, p in enumerate(participants):
+                    summoner_name = p.get("summonerName", "")
+                    _LOGGER.debug("Participant %d: summonerName='%s', championId=%s", 
+                                 i, summoner_name, p.get("championId"))
+                    if summoner_name.lower() == self._game_name.lower():
                         participant = p
+                        _LOGGER.info("Found player by summoner name match: %s", summoner_name)
                         break
             
             if not participant:
+                _LOGGER.error("Player not found in current game data")
+                _LOGGER.debug("Available participants: %s", 
+                             [{"summonerName": p.get("summonerName"), "puuid": p.get("puuid", "")[:8] + "..." if p.get("puuid") else "None"} 
+                              for p in participants])
                 raise UpdateFailed("Player not found in current game data")
+            
+            # Get champion info
+            champion_id = participant.get("championId", 0)
+            champion_name = participant.get("championName")
+            
+            # If championName is not provided, try to get it from championId
+            if not champion_name or champion_name == "Unknown":
+                champion_name = CHAMPION_NAMES.get(champion_id, f"Champion_{champion_id}")
+                _LOGGER.debug("Resolved champion name from ID %d: %s", champion_id, champion_name)
+            
+            _LOGGER.debug("Final champion info: ID=%d, Name='%s'", champion_id, champion_name)
             
             # Get queue and game mode info
             queue_id = game_data.get("gameQueueConfigId", 0)
             raw_game_mode = game_data.get("gameMode", "Unknown")
+            map_id = game_data.get("mapId", 0)
+            game_type = game_data.get("gameType", "Unknown")
             
             # Map to human-readable names
-            from .const import QUEUE_TYPES, GAME_MODES
             queue_name = QUEUE_TYPES.get(queue_id, f"Queue {queue_id}")
             game_mode_name = GAME_MODES.get(raw_game_mode, raw_game_mode)
+            map_name = MAP_NAMES.get(map_id, f"Map {map_id}")
+            game_type_name = GAME_TYPES.get(game_type, game_type)
             
-            _LOGGER.info("Current game: %s (Queue %d: %s)", game_mode_name, queue_id, queue_name)
+            _LOGGER.info("Current game: %s (Queue %d: %s), Champion: %s (ID: %d), Map: %s", 
+                        game_mode_name, queue_id, queue_name, champion_name, champion_id, map_name)
             
             return {
                 "state": GAME_STATES.get("in_game", "In Game"),
                 "game_mode": game_mode_name,
                 "queue_type": queue_name,
                 "queue_id": queue_id,
-                "champion": participant.get("championName", "Unknown"),
+                "map_name": map_name,
+                "map_id": map_id,
+                "game_type": game_type_name,
+                "champion": champion_name,
+                "champion_id": champion_id,
                 "game_start_time": game_data.get("gameStartTime", 0),
                 "game_length": game_data.get("gameLength", 0),
                 "last_updated": datetime.now().isoformat(),

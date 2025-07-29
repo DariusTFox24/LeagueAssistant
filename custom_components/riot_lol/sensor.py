@@ -102,8 +102,16 @@ class RiotLoLGameStateSensor(RiotLoLBaseSensor):
         # Add champion info if in game
         state = self.coordinator.data.get("state")
         if state == "In Game":
-            attributes["champion"] = self.coordinator.data.get("champion")
-            attributes["queue_id"] = self.coordinator.data.get("queue_id")
+            attributes.update({
+                "champion": self.coordinator.data.get("champion"),
+                "champion_id": self.coordinator.data.get("champion_id"),
+                "queue_id": self.coordinator.data.get("queue_id"),
+                "map_name": self.coordinator.data.get("map_name"),
+                "map_id": self.coordinator.data.get("map_id"),
+                "game_type": self.coordinator.data.get("game_type"),
+                "game_start_time": self.coordinator.data.get("game_start_time"),
+                "game_length": self.coordinator.data.get("game_length"),
+            })
             
         return attributes
 
