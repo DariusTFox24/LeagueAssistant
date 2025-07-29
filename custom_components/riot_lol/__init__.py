@@ -19,8 +19,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Riot LoL from a config entry."""
     _LOGGER.debug("Setting up Riot LoL integration for entry: %s", entry.entry_id)
     
-    # Get configuration data
-    api_key = entry.data["api_key"]
+    config_type = entry.data.get("config_type", "summoner")
+    
+    if config_type == "api_key":
+        # This is just an API key configuration, no setup needed
+        _LOGGER.debug("API key configuration entry, no platform setup required")
+        return True
+    
+    # This is a summoner configuration
     game_name = entry.data["game_name"]
     tag_line = entry.data.get("tag_line", "")
     region = entry.data["region"]
@@ -30,11 +36,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     scan_interval = entry.options.get("scan_interval", DEFAULT_SCAN_INTERVAL)
     update_interval = timedelta(seconds=scan_interval)
     
-    # Create data update coordinator
+    # Create data update coordinator (no API key needed here, it gets it dynamically)
     session = async_get_clientsession(hass)
     coordinator = RiotLoLDataUpdateCoordinator(
         hass=hass,
-        api_key=api_key,
         game_name=game_name,
         tag_line=tag_line,
         region=region,
@@ -63,6 +68,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     _LOGGER.debug("Unloading Riot LoL integration for entry: %s", entry.entry_id)
     
+    config_type = entry.data.get("config_type", "summoner")
+    
+    if config_type == "api_key":
+        # API key configuration, no platforms to unload
+        return True
+    
+    # Summoner configuration, unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     
     if unload_ok:
@@ -79,6 +91,22 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update options for the config entry."""
     _LOGGER.debug("Updating options for Riot LoL entry: %s", entry.entry_id)
     
+    config_type = entry.data.get("config_type", "summoner")
+    
+    if config_type == "api_key":
+        # API key updated, trigger reload of all summoner coordinators
+        _LOGGER.info("API key updated, triggering update for all summoner coordinators")
+        for domain_entry in hass.config_entries.async_entries(DOMAIN):
+            if (domain_entry.data.get("config_type") == "summoner" and 
+                domain_entry.entry_id in hass.data.get(DOMAIN, {})):
+                coordinator = hass.data[DOMAIN][domain_entry.entry_id]
+                await coordinator.async_request_refresh()
+        return
+    
+    # Summoner configuration options update
+    if entry.entry_id not in hass.data.get(DOMAIN, {}):
+        return
+        
     # Get the coordinator
     coordinator: RiotLoLDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
     

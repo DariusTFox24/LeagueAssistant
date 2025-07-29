@@ -20,7 +20,6 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
     def __init__(
         self,
         hass: HomeAssistant,
-        api_key: str,
         game_name: str,
         tag_line: str,
         region: str,
@@ -29,7 +28,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         puuid: Optional[str] = None,
     ):
         """Initialize the coordinator."""
-        self._api_key = api_key
+        self._hass = hass
         self._game_name = game_name
         self._tag_line = tag_line
         self._region = region
@@ -51,6 +50,21 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             name=f"Riot LoL Data for {riot_id}",
             update_interval=update_interval,
         )
+
+    def _get_api_key(self) -> Optional[str]:
+        """Get the global API key from configuration."""
+        from .const import DOMAIN
+        for entry in self._hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get("config_type") == "api_key":
+                return entry.data.get("api_key")
+        return None
+
+    def _get_headers(self) -> Dict[str, str]:
+        """Get request headers with API key."""
+        api_key = self._get_api_key()
+        if not api_key:
+            raise UpdateFailed("No API key available")
+        return {"X-Riot-Token": api_key}
         
         if self._puuid:
             _LOGGER.info(f"Using pre-validated PUUID for {riot_id}: {self._puuid[:8]}...")
@@ -60,6 +74,12 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from Riot API."""
         _LOGGER.info("Starting data update cycle...")
+        
+        # Check if API key is available
+        api_key = self._get_api_key()
+        if not api_key:
+            raise UpdateFailed("No API key configured. Please set up the Riot Games API key first.")
+        
         try:
             # Initialize PUUID if not set
             if not self._puuid:
@@ -174,7 +194,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         encoded_tag_line = quote(self._tag_line, safe='') if self._tag_line else ""
         
         url = f"https://{regional_cluster}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{encoded_game_name}/{encoded_tag_line}"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         _LOGGER.info("Fetching account info for %s#%s in region %s (cluster: %s)", 
@@ -222,7 +242,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Invalid PUUID: {self._puuid}. Cannot fetch summoner info.")
             
         url = f"https://{self._region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{self._puuid}"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         _LOGGER.info("Fetching summoner info for PUUID %s in region %s", self._puuid[:8] + "...", self._region)
@@ -292,7 +312,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             return None
             
         url = f"https://{self._region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._summoner_id}"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         try:
@@ -369,7 +389,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         
         # Get latest match ID
         url = f"https://{regional_cluster}.api.riotgames.com/lol/match/v5/matches/by-puuid/{self._puuid}/ids?start=0&count=1"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         try:
@@ -402,7 +422,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
     async def _fetch_match_details(self, match_id: str, regional_cluster: str) -> Optional[Dict[str, Any]]:
         """Fetch detailed match information."""
         url = f"https://{regional_cluster}.api.riotgames.com/lol/match/v5/matches/{match_id}"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         try:
@@ -461,7 +481,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             
         # Use PUUID-based league endpoint (newer, more reliable)
         url = f"https://{self._region}.api.riotgames.com/lol/league/v4/entries/by-puuid/{self._puuid}"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         _LOGGER.info("Fetching ranked stats for PUUID %s in region %s", self._puuid[:8] + "...", self._region)
@@ -571,7 +591,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         
         # Get last 10 match IDs
         url = f"https://{regional_cluster}.api.riotgames.com/lol/match/v5/matches/by-puuid/{self._puuid}/ids?start=0&count=10"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         _LOGGER.info("Fetching match history for PUUID %s", self._puuid[:8] + "...")
@@ -611,7 +631,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
     async def _fetch_match_details_full(self, match_id: str, regional_cluster: str) -> Optional[Dict[str, Any]]:
         """Fetch full detailed match information including all participant data."""
         url = f"https://{regional_cluster}.api.riotgames.com/lol/match/v5/matches/{match_id}"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         try:
@@ -712,7 +732,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             return 0
             
         url = f"https://{self._region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{self._puuid}"
-        headers = {"X-Riot-Token": self._api_key}
+        headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
         _LOGGER.info("Fetching summoner level for PUUID %s", self._puuid[:8] + "...")

@@ -7,17 +7,18 @@
 
 _Integration to monitor League of Legends player statistics in Home Assistant._
 
-## Features
+## ✨ Features
 
-- **Real-time Game Tracking**: Know when you're in a game, in queue, or online
-- **Match Statistics**: Automatically track kills, deaths, assists, and KDA from your latest matches
-- **Rank Monitoring**: Keep track of your current rank, LP, and win/loss record
-- **Champion Information**: See which champion you're currently playing
-- **Multiple Sensors**: Separate sensors for different statistics for easy automation
-- **Configurable Polling**: Adjust how often data is refreshed (1 minute to 1 hour)
-- **Modern UI Configuration**: Easy setup through Home Assistant's integration UI
+- **🎮 Real-time Game Tracking**: Know when you're in a game with honest status detection
+- **📊 Match Statistics**: Track kills, deaths, assists, KDA, and win state from your latest matches
+- **🏆 Rank Monitoring**: Current rank, LP, win rate, and ranked statistics  
+- **🔥 Champion Information**: See which champion you last played
+- **📈 Multiple Sensors**: 12 different sensors for comprehensive automation
+- **⚡ Global API Key**: One API key for all summoners - easy 24h key rotation
+- **⏱️ Configurable Polling**: 1-5 minute update intervals
+- **🎯 Modern UI**: Easy setup through Home Assistant's integration UI
 
-## Installation
+## 📦 Installation
 
 ### HACS (Recommended)
 
@@ -37,30 +38,41 @@ _Integration to monitor League of Legends player statistics in Home Assistant._
 2. Copy the `custom_components/riot_lol/` folder to your Home Assistant `custom_components/` directory
 3. Restart Home Assistant
 
-## Configuration
+## ⚙️ Configuration
 
 ### 1. Get a Riot API Key
 
 1. Go to the [Riot Developer Portal](https://developer.riotgames.com/)
 2. Sign in with your Riot account
-3. Create a new personal API key
-4. Copy the API key (it will look like `RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+3. Create a new personal API key (expires every 24h) or production key
+4. Copy the API key (format: `RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
 
-### 2. Set Up the Integration
+### 2. Initial Setup (v2.0.0+)
 
-1. In Home Assistant, go to **Configuration** > **Integrations**
-2. Click the **+** button to add a new integration
-3. Search for "League of Legends Stats"
-4. Enter your configuration:
-   - **API Key**: Your Riot API key from step 1
-   - **Game Name**: Your Riot ID game name (e.g., "PlayerName")
-   - **Tag Line**: Your Riot ID tag line (e.g., "NA1") - Optional
-   - **Region**: Your platform region (e.g., "na1", "euw1", "kr")
+**Step 1: Configure API Key**
+1. In Home Assistant, go to **Settings** > **Devices & Services**
+2. Click **+ ADD INTEGRATION** and search for "League of Legends Stats"
+3. **First setup**: Enter your Riot Games API key
+4. This creates a global API key used by all summoners
 
-### 3. Configure Options (Optional)
+**Step 2: Add Summoners**  
+1. Click **+ ADD INTEGRATION** again and search for "League of Legends Stats"
+2. **Add summoner**: Enter summoner details (no API key needed!)
+   - **Game Name**: Your Riot ID game name (e.g., "PlayerName")  
+   - **Tag Line**: Your tag line (e.g., "NA1", "EUW") - can be empty
+   - **Region**: Platform region (e.g., "na1", "euw1", "kr")
+   - **Update Interval**: How often to refresh (60-300 seconds)
 
-After setup, you can configure additional options:
-- **Scan Interval**: How often to check for updates (60-3600 seconds, default: 300)
+3. **Repeat Step 2** for each summoner you want to track
+
+### 3. Daily API Key Updates (Development Keys)
+
+Development API keys expire every 24 hours. Easy renewal:
+
+1. Go to **Settings** > **Devices & Services** > **League of Legends Stats**
+2. Find the **"Riot Games API Key"** entry
+3. Click **Configure** → Enter new API key → **Submit**
+4. **All summoners automatically use the new key!**
 
 ## Sensors
 

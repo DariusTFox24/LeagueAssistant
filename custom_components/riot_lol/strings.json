@@ -1,6 +1,23 @@
 {
   "config": {
     "step": {
+      "api_key": {
+        "title": "Riot Games API Key Setup",
+        "description": "Configure your Riot Games API key. Get your API key from {api_url}",
+        "data": {
+          "api_key": "Riot Games API Key"
+        }
+      },
+      "summoner": {
+        "title": "Add League of Legends Summoner",
+        "description": "Add a League of Legends summoner to track",
+        "data": {
+          "game_name": "Riot ID (Game Name)",
+          "tag_line": "Tag Line (e.g., NA1, EUW, etc.)",
+          "region": "Region",
+          "scan_interval": "Update Interval (seconds)"
+        }
+      },
       "user": {
         "title": "League of Legends Integration",
         "description": "Configure your Riot API settings using your Riot ID",
@@ -15,16 +32,49 @@
     "error": {
       "cannot_connect": "Failed to connect to Riot API",
       "invalid_api_key": "Invalid API key",
+      "forbidden_api_key": "API key forbidden (expired or invalid permissions)",
       "api_key_expired": "API key expired or insufficient permissions",
       "riot_id_not_found": "Riot ID not found. Please check your Game Name and Tag Line",
       "summoner_not_found": "Summoner not found in the specified region (deprecated)",
       "rate_limit": "Rate limit exceeded, please try again later",
       "connection_error": "Connection error occurred",
       "unknown_error": "Unknown error occurred",
-      "invalid_response": "Invalid response from Riot API"
+      "invalid_response": "Invalid response from Riot API",
+      "puuid_not_found": "Account not found"
     },
     "abort": {
-      "already_configured": "This Riot ID is already configured for this region"
+      "already_configured": "This Riot ID is already configured for this region",
+      "no_api_key": "No API key configured. Please set up the API key first."
+    }
+  },
+  "options": {
+    "step": {
+      "api_key_options": {
+        "title": "Update API Key",
+        "description": "Update your Riot Games API key",
+        "data": {
+          "api_key": "Riot Games API Key"
+        }
+      },
+      "summoner_options": {
+        "title": "Summoner Options",
+        "description": "Configure summoner tracking options",
+        "data": {
+          "scan_interval": "Update Interval (seconds)"
+        }
+      },
+      "init": {
+        "title": "Options",
+        "data": {
+          "scan_interval": "Update Interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_api_key": "Invalid API key",
+      "forbidden_api_key": "API key forbidden (expired or invalid permissions)",
+      "rate_limit": "Rate limit exceeded, try again later",
+      "connection_error": "Connection error"
     }
   }
 }
