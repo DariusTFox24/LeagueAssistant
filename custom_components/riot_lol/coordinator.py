@@ -765,21 +765,19 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             # Not in League game - use player status to determine state
             _LOGGER.debug("Player is not in League game - status: %s", player_status)
             
-            # Map player status to game state
+            # Map player status to our honest game states
             state_map = {
-                "online": GAME_STATES.get("online", "Online"),
-                "offline": GAME_STATES.get("offline", "Offline"),
-                "idle": GAME_STATES.get("idle", "Idle"),
-                "in_tft": GAME_STATES.get("in_tft", "In TFT"),
-                "in_valorant": GAME_STATES.get("in_valorant", "In Valorant"),
-                "unknown": GAME_STATES.get("unknown", "Unknown"),
+                "recently_played": GAME_STATES.get("recently_played", "Recently Played"),
+                "touching_grass": GAME_STATES.get("touching_grass", "Touching Grass"),
+                "in_game": GAME_STATES.get("in_game", "In Game"),  # Backup mapping
             }
             
-            data["state"] = state_map.get(player_status, GAME_STATES.get("unknown", "Unknown"))
+            # Set the state based on our honest detection
+            data["state"] = state_map.get(player_status, GAME_STATES.get("touching_grass", "Touching Grass"))
+            
             if self._last_match_data:
                 latest_match = self._last_match_data
                 data.update({
-                    "state": GAME_STATES.get("online", "Online"),
                     "game_mode": latest_match.get("game_mode"),
                     "queue_type": latest_match.get("queue_id"),
                     "champion": latest_match.get("champion", "Unknown"),
@@ -798,9 +796,8 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     "latest_match_data": latest_match,
                 })
             else:
-                # No match data available
+                # No match data available - definitely touching grass
                 data.update({
-                    "state": GAME_STATES.get("online", "Online"),
                     "game_mode": None,
                     "queue_type": None,
                     "champion": "No recent matches",
