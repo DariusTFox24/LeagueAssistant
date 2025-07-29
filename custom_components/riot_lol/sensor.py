@@ -350,16 +350,16 @@ class RiotLoLWinStateSensor(RiotLoLBaseSensor):
 
     @property
     def native_value(self):
-        """Return the latest match result (Won/Lost/Unknown)."""
+        """Return the latest match result (Victory/Defeat/Unknown)."""
         if not self.coordinator.data:
             return "Unknown"
         
         # Use latest match data
         latest_win = self.coordinator.data.get("latest_win")
         if latest_win is True:
-            return "Won"
+            return "Victory"
         elif latest_win is False:
-            return "Lost"
+            return "Defeat"
         else:
             return "Unknown"
 
