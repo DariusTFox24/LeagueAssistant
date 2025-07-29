@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import REGION_CLUSTERS, GAME_STATES
+from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         tag_line: str,
         region: str,
         session: ClientSession = None,
-        update_interval: timedelta = timedelta(minutes=5),
+        update_interval: timedelta = timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         puuid: Optional[str] = None,
     ):
         """Initialize the coordinator."""
@@ -39,6 +39,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         self._last_match_id: Optional[str] = None
         self._last_match_data: Optional[Dict[str, Any]] = None
         self._match_history: Optional[list] = None
+        self._last_successful_data: Optional[Dict[str, Any]] = None
         self._consecutive_errors = 0
         self._max_errors = 5
         
@@ -58,17 +59,22 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from Riot API."""
+        _LOGGER.info("Starting data update cycle...")
         try:
             # Initialize PUUID if not set
             if not self._puuid:
+                _LOGGER.info("No PUUID cached, fetching account info...")
                 try:
                     await self._fetch_account_info()
                 except UpdateFailed as err:
                     _LOGGER.error("Failed to fetch account info: %s", err)
                     raise
+            else:
+                _LOGGER.debug("Using cached PUUID: %s", self._puuid[:8] + "...")
             
             # Fetch match history and latest match data first
             try:
+                _LOGGER.debug("Fetching match history...")
                 await self._fetch_match_history()
             except Exception as err:
                 _LOGGER.warning("Error fetching match history: %s", err)
@@ -76,34 +82,49 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             # Fetch current game status (requires summoner ID)
             current_game_data = None
             try:
+                _LOGGER.debug("Checking current game status...")
                 current_game = await self._fetch_current_game()
                 if current_game:
+                    _LOGGER.info("Player is currently in game")
                     current_game_data = await self._process_current_game(current_game)
+                else:
+                    _LOGGER.debug("Player is not in game")
             except Exception as err:
                 _LOGGER.warning("Error checking current game, continuing: %s", err)
             
             # Fetch ranked stats
             ranked_stats = {}
             try:
+                _LOGGER.debug("Fetching ranked stats...")
                 ranked_stats = await self._fetch_ranked_stats()
             except Exception as err:
                 _LOGGER.warning("Error fetching ranked stats: %s", err)
                 ranked_stats = {"rank": "Unknown"}
             
             # Fetch summoner level
+            _LOGGER.debug("Fetching summoner level...")
             summoner_level = await self._fetch_summoner_level()
             
             self._consecutive_errors = 0  # Reset error counter on success
             
             # Build comprehensive data combining current game, latest match, and ranked stats
-            return self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level)
+            _LOGGER.debug("Building comprehensive data...")
+            result = self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level)
+            
+            # Cache successful result
+            self._last_successful_data = result.copy()
+            
+            _LOGGER.info("Data update completed successfully")
+            return result
             
         except UpdateFailed:
             # Re-raise UpdateFailed exceptions (these are expected)
+            _LOGGER.warning("Update failed, but continuing with available data")
             raise
         except Exception as err:
             self._consecutive_errors += 1
-            _LOGGER.error("Unexpected error in coordinator update: %s", err, exc_info=True)
+            _LOGGER.error("Unexpected error in coordinator update (attempt %d/%d): %s", 
+                         self._consecutive_errors, self._max_errors, err, exc_info=True)
             
             if self._consecutive_errors >= self._max_errors:
                 _LOGGER.error(
@@ -111,11 +132,25 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     self._consecutive_errors,
                     err
                 )
+                # Return minimal data instead of failing completely
                 return {
                     "state": GAME_STATES["offline"],
                     "last_updated": datetime.now().isoformat(),
                     "error": str(err),
+                    "summoner_level": 0,
+                    "rank": "Unknown",
+                    "champion": "Error",
+                    "kills": 0,
+                    "deaths": 0,
+                    "assists": 0,
+                    "kda": 0.0,
+                    "latest_match_id": None,
                 }
+            
+            # For fewer errors, return cached data if available or minimal data
+            if hasattr(self, '_last_successful_data') and self._last_successful_data:
+                _LOGGER.warning("Returning cached data due to error")
+                return self._last_successful_data
             
             raise UpdateFailed(f"Error communicating with Riot API: {err}")
 
@@ -209,33 +244,39 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                             _LOGGER.warning("Some features (current game, ranked stats) may not work")
                             self._summoner_id = None
                 elif response.status == 404:
-                    raise UpdateFailed(f"Summoner not found for PUUID {self._puuid[:8]}... in region {self._region}")
+                    _LOGGER.warning("Summoner not found for PUUID %s... in region %s", self._puuid[:8], self._region)
+                    # Don't fail completely, just continue without summoner ID
+                    self._summoner_id = None
+                    return
                 elif response.status == 429:
-                    raise UpdateFailed("Rate limit exceeded")
+                    _LOGGER.warning("Rate limit exceeded for summoner lookup")
+                    return
                 elif response.status == 401:
-                    raise UpdateFailed("Invalid API key for summoner lookup")
+                    _LOGGER.warning("Invalid API key for summoner lookup")
+                    return
                 else:
-                    raise UpdateFailed(f"API error fetching summoner: {response.status}")
+                    _LOGGER.warning("API error fetching summoner: %s", response.status)
+                    return
                     
         except ClientResponseError as err:
-            raise UpdateFailed(f"HTTP error fetching summoner info: {err}")
+            _LOGGER.warning("HTTP error fetching summoner info: %s", err)
         except KeyError as err:
-            raise UpdateFailed(f"Missing expected field in summoner response: {err}")
+            _LOGGER.warning("Missing expected field in summoner response: %s", err)
         except Exception as err:
-            raise UpdateFailed(f"Unexpected error fetching summoner info: {err}")
+            _LOGGER.warning("Unexpected error fetching summoner info: %s", err)
 
     async def _fetch_current_game(self) -> Optional[Dict[str, Any]]:
         """Check if player is currently in a game."""
-        # Try to get summoner ID if we don't have it
+        # Current game check requires summoner ID, but don't fail the whole update if we can't get it
         if not self._summoner_id:
             try:
                 await self._fetch_summoner_info()
-            except UpdateFailed as err:
-                _LOGGER.warning("Cannot fetch summoner ID for current game check: %s", err)
+            except Exception as err:
+                _LOGGER.debug("Cannot fetch summoner ID for current game check: %s", err)
                 return None
             
         if not self._summoner_id:
-            _LOGGER.info("No summoner ID available, skipping current game check")
+            _LOGGER.debug("No summoner ID available, skipping current game check")
             return None
             
         url = f"https://{self._region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._summoner_id}"
@@ -245,15 +286,19 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
-                    return await response.json()
+                    game_data = await response.json()
+                    _LOGGER.info("Player is currently in game")
+                    return game_data
                 elif response.status == 404:
-                    # Not in game
+                    # Not in game - this is normal
+                    _LOGGER.debug("Player is not currently in game")
                     return None
                 elif response.status == 429:
                     _LOGGER.warning("Rate limit exceeded for current game check")
                     return None
                 else:
-                    _LOGGER.warning("Error checking current game: %s", response.status)
+                    _LOGGER.debug("Error checking current game: %s", response.status)
+                    return None
                     return None
                     
         except ClientResponseError as err:
@@ -603,25 +648,19 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("No PUUID available, cannot fetch summoner level")
             return 0
             
-        if not self._summoner_id:
-            try:
-                await self._fetch_summoner_info()
-            except UpdateFailed:
-                _LOGGER.warning("Cannot fetch summoner info for level lookup")
-                return 0
-                
-        if not self._summoner_id:
-            return 0
-            
         url = f"https://{self._region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/{self._puuid}"
         headers = {"X-Riot-Token": self._api_key}
         timeout = ClientTimeout(total=10)
+        
+        _LOGGER.info("Fetching summoner level for PUUID %s", self._puuid[:8] + "...")
         
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return data.get("summonerLevel", 0)
+                    level = data.get("summonerLevel", 0)
+                    _LOGGER.info("Successfully fetched summoner level: %d", level)
+                    return level
                 else:
                     _LOGGER.warning("Error fetching summoner level: %s", response.status)
                     return 0
@@ -641,7 +680,10 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         
         # If in current game, prioritize current game data but supplement with latest match stats
         if current_game_data:
+            _LOGGER.info("Player is in game - using current game data")
             data.update(current_game_data)
+            # Ensure state is set to "In Game"
+            data["state"] = GAME_STATES.get("in_game", "In Game")
             
             # Add latest match stats for the stat entities
             if self._last_match_data:
@@ -657,7 +699,9 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     "latest_match_data": latest_match,
                 })
         else:
+            _LOGGER.debug("Player is not in game - using latest match data")
             # Not in game - use latest match data as primary source
+            data["state"] = GAME_STATES.get("online", "Online")
             if self._last_match_data:
                 latest_match = self._last_match_data
                 data.update({

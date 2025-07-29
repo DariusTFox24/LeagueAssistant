@@ -34,6 +34,7 @@ async def async_setup_entry(
         RiotLoLRankSensor(coordinator, config_entry),
         RiotLoLLatestMatchSensor(coordinator, config_entry),
         RiotLoLLevelSensor(coordinator, config_entry),
+        RiotLoLWinStateSensor(coordinator, config_entry),
     ]
     
     async_add_entities(sensors, True)
@@ -336,3 +337,45 @@ class RiotLoLLevelSensor(RiotLoLBaseSensor):
         if not self.coordinator.data:
             return 0
         return self.coordinator.data.get("summoner_level", 0)
+
+
+class RiotLoLWinStateSensor(RiotLoLBaseSensor):
+    """Sensor for latest match win state."""
+
+    def __init__(self, coordinator: RiotLoLDataUpdateCoordinator, config_entry: ConfigEntry):
+        """Initialize the win state sensor."""
+        super().__init__(coordinator, config_entry, "win_state")
+        self._attr_name = "Latest Match Result"
+        self._attr_icon = "mdi:trophy-variant"
+
+    @property
+    def native_value(self):
+        """Return the latest match result (Won/Lost/Unknown)."""
+        if not self.coordinator.data:
+            return "Unknown"
+        
+        # Use latest match data
+        latest_win = self.coordinator.data.get("latest_win")
+        if latest_win is True:
+            return "Won"
+        elif latest_win is False:
+            return "Lost"
+        else:
+            return "Unknown"
+
+    @property
+    def extra_state_attributes(self):
+        """Return additional match result information."""
+        if not self.coordinator.data:
+            return {}
+        
+        latest_match_data = self.coordinator.data.get("latest_match_data")
+        if not latest_match_data:
+            return {}
+        
+        return {
+            "match_id": latest_match_data.get("match_id"),
+            "champion": latest_match_data.get("champion"),
+            "game_mode": latest_match_data.get("game_mode"),
+            "win": latest_match_data.get("win"),
+        }
