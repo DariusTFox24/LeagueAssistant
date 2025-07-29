@@ -9,14 +9,15 @@ _Integration to monitor League of Legends player statistics in Home Assistant._
 
 ## ✨ Features
 
-- **🎮 Real-time Game Tracking**: Know when you're in a game with honest status detection
+- **🎮 Real-time Game Tracking**: Know when you're in a game with honest status detection using modern PUUID endpoints
 - **📊 Match Statistics**: Track kills, deaths, assists, KDA, and win state from your latest matches
 - **🏆 Rank Monitoring**: Current rank, LP, win rate, and ranked statistics  
-- **🔥 Champion Information**: See which champion you last played
+- **🔥 Champion Information**: See which champion you last played or are currently playing
 - **📈 Multiple Sensors**: 12 different sensors for comprehensive automation
 - **⚡ Global API Key**: One API key for all summoners - easy 24h key rotation
 - **⏱️ Configurable Polling**: 1-5 minute update intervals
 - **🎯 Modern UI**: Easy setup through Home Assistant's integration UI
+- **🎮 Game Mode Detection**: Proper mapping for Arena, ARAM, Ranked, and all game modes
 
 ## 📦 Installation
 
@@ -95,9 +96,15 @@ The integration creates 12 comprehensive sensors for each summoner:
 ### Game State Detection
 
 **Honest Status Based on API Reality:**
-- **"In Game"** - Currently in an active League match
+- **"In Game"** - Currently in an active League match (using modern PUUID endpoint)
 - **"Played Recently"** - Last match ended within 4 hours
 - **"Touching Grass"** - Last match was 4+ hours ago
+
+**When "In Game", additional attributes include:**
+- **Champion**: Currently playing champion
+- **Game Mode**: Arena, ARAM, Summoner's Rift, etc.
+- **Queue Type**: Ranked Solo/Duo, Arena, Normal Draft, etc.
+- **Match ID**: Current game identifier
 
 *Note: Riot API doesn't provide real online/offline status, so we use honest detection based on actual available data.*
 
@@ -183,11 +190,13 @@ All official Riot Games regions are supported:
 
 ## ⚡ API Rate Limits & Performance
 
+- **Modern PUUID Endpoints** - Uses latest Riot API recommendations
 - **Respects Riot's rate limits** automatically
 - **1-minute update intervals** for real-time tracking
 - **Personal API keys**: 100 requests/2 minutes (perfect for personal use)
 - **Production API keys**: Higher limits for multiple users
 - **Intelligent caching** reduces API calls
+- **Optimized current game detection** with fewer API requests
 
 ## 🔧 Troubleshooting
 
@@ -237,6 +246,9 @@ logger:
 - ✅ **Victory/Defeat** terminology instead of Won/Lost
 - ✅ **Enhanced Match History** tracking
 - ✅ **12 Comprehensive Sensors** per summoner
+- ✅ **Modern PUUID Endpoints** - improved reliability
+- ✅ **Game Mode Mapping** - Arena, ARAM, Ranked display correctly
+- ✅ **Current Game Champion** - see what you're playing live
 
 ## 🤝 Contributing
 

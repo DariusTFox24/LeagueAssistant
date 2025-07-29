@@ -1,7 +1,7 @@
 {
   "domain": "riot_lol",
   "name": "League of Legends Stats Integration",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "documentation": "https://github.com/DariusTFox24/league-assistant",
   "issue_tracker": "https://github.com/DariusTFox24/league-assistant/issues",
   "requirements": ["aiohttp>=3.8.0"],

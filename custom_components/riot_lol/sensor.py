@@ -92,12 +92,20 @@ class RiotLoLGameStateSensor(RiotLoLBaseSensor):
         if not self.coordinator.data:
             return {}
         
-        return {
+        attributes = {
             "last_updated": self.coordinator.data.get("last_updated"),
             "game_mode": self.coordinator.data.get("game_mode"),
             "queue_type": self.coordinator.data.get("queue_type"),
             "match_id": self.coordinator.data.get("match_id"),
         }
+        
+        # Add champion info if in game
+        state = self.coordinator.data.get("state")
+        if state == "In Game":
+            attributes["champion"] = self.coordinator.data.get("champion")
+            attributes["queue_id"] = self.coordinator.data.get("queue_id")
+            
+        return attributes
 
 
 class RiotLoLKillsSensor(RiotLoLBaseSensor):

@@ -106,9 +106,13 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("Checking for current game first...")
                 current_game = await self._fetch_current_game()
                 if current_game:
-                    _LOGGER.info("Player is currently in League of Legends game")
+                    _LOGGER.info("Player is currently in League of Legends game - processing game data")
                     current_game_data = await self._process_current_game(current_game)
                     player_status = "in_game"
+                    _LOGGER.info("Current game data processed successfully: state=%s, game_mode=%s, champion=%s", 
+                               current_game_data.get("state"), 
+                               current_game_data.get("game_mode"), 
+                               current_game_data.get("champion"))
                 else:
                     _LOGGER.debug("Player not in current game, checking recent activity...")
                     player_status = await self._fetch_player_status()
@@ -291,39 +295,32 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Unexpected error fetching summoner info: %s", err)
 
     async def _fetch_current_game(self) -> Optional[Dict[str, Any]]:
-        """Check if player is currently in a game."""
-        # Current game check requires summoner ID, but don't fail the whole update if we can't get it
-        if not self._summoner_id:
-            try:
-                await self._fetch_summoner_info()
-            except Exception as err:
-                _LOGGER.debug("Cannot fetch summoner ID for current game check: %s", err)
-                return None
-            
-        if not self._summoner_id:
-            _LOGGER.debug("No summoner ID available, skipping current game check")
+        """Check if player is currently in a game using PUUID (modern approach)."""
+        if not self._puuid:
+            _LOGGER.debug("No PUUID available, skipping current game check")
             return None
             
-        url = f"https://{self._region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._summoner_id}"
+        url = f"https://{self._region}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._puuid}"
         headers = self._get_headers()
         timeout = ClientTimeout(total=10)
+        
+        _LOGGER.debug("Checking current game with PUUID endpoint: %s", url.replace(self._puuid, self._puuid[:8] + "..."))
         
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
                 if response.status == 200:
                     game_data = await response.json()
-                    _LOGGER.info("Player is currently in game")
+                    _LOGGER.info("Player is currently in game (PUUID endpoint)")
                     return game_data
                 elif response.status == 404:
                     # Not in game - this is normal
-                    _LOGGER.debug("Player is not currently in game")
+                    _LOGGER.debug("Player is not currently in game (PUUID endpoint)")
                     return None
                 elif response.status == 429:
                     _LOGGER.warning("Rate limit exceeded for current game check")
                     return None
                 else:
                     _LOGGER.debug("Error checking current game: %s", response.status)
-                    return None
                     return None
                     
         except ClientResponseError as err:
@@ -353,10 +350,22 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             if not participant:
                 raise UpdateFailed("Player not found in current game data")
             
+            # Get queue and game mode info
+            queue_id = game_data.get("gameQueueConfigId", 0)
+            raw_game_mode = game_data.get("gameMode", "Unknown")
+            
+            # Map to human-readable names
+            from .const import QUEUE_TYPES, GAME_MODES
+            queue_name = QUEUE_TYPES.get(queue_id, f"Queue {queue_id}")
+            game_mode_name = GAME_MODES.get(raw_game_mode, raw_game_mode)
+            
+            _LOGGER.info("Current game: %s (Queue %d: %s)", game_mode_name, queue_id, queue_name)
+            
             return {
                 "state": GAME_STATES.get("in_game", "In Game"),
-                "game_mode": game_data.get("gameMode", "Unknown"),
-                "queue_type": game_data.get("gameQueueConfigId"),
+                "game_mode": game_mode_name,
+                "queue_type": queue_name,
+                "queue_id": queue_id,
                 "champion": participant.get("championName", "Unknown"),
                 "game_start_time": game_data.get("gameStartTime", 0),
                 "game_length": game_data.get("gameLength", 0),
@@ -749,10 +758,9 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         if current_game_data:
             _LOGGER.info("Player is in League of Legends game")
             data.update(current_game_data)
-            # Ensure state is set to "In Game"
-            data["state"] = GAME_STATES.get("in_game", "In Game")
+            # The state is already set correctly in current_game_data, don't override it
             
-            # Add latest match stats for the stat entities
+            # Add latest match stats for the stat entities (keeping current game stats as primary)
             if self._last_match_data:
                 latest_match = self._last_match_data
                 data.update({

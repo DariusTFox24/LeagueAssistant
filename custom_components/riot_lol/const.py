@@ -49,6 +49,31 @@ GAME_STATES = {
     "unknown": "Unknown"
 }
 
+# Queue type mappings (common ones)
+QUEUE_TYPES = {
+    400: "Normal Draft",
+    420: "Ranked Solo/Duo",
+    430: "Normal Blind",
+    440: "Ranked Flex",
+    450: "ARAM",
+    900: "URF",
+    1020: "One For All",
+    1700: "Arena",  # 2v2v2v2 Arena mode
+    # Add more as needed
+}
+
+# Game mode mappings
+GAME_MODES = {
+    "CLASSIC": "Summoner's Rift",
+    "ARAM": "ARAM",
+    "URF": "URF",
+    "ONEFORALL": "One For All",
+    "CHERRY": "Arena",  # Arena mode uses CHERRY internally
+    "NEXUSBLITZ": "Nexus Blitz",
+    "TUTORIAL": "Tutorial",
+    "PRACTICETOOL": "Practice Tool",
+}
+
 # Sensor types
 SENSOR_TYPES = [
     "game_state",
