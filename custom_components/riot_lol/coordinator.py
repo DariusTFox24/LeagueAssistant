@@ -99,27 +99,20 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Error fetching match history: %s", err)
             
-            # Check player online status and current game
+            # Check player status and current game
             player_status = None
             current_game_data = None
             try:
-                _LOGGER.debug("Checking player status...")
-                player_status = await self._fetch_player_status()
-                _LOGGER.info("Player status: %s", player_status)
-                
-                # If player is online, check for current game
-                if player_status in ["online", "in_game"]:
-                    current_game = await self._fetch_current_game()
-                    if current_game:
-                        _LOGGER.info("Player is currently in League of Legends game")
-                        current_game_data = await self._process_current_game(current_game)
-                        player_status = "in_game"
-                    elif player_status == "in_game":
-                        # Player might be in other Riot games
-                        _LOGGER.debug("Player appears to be in game but not League - checking other games")
-                        other_game = await self._check_other_riot_games()
-                        if other_game:
-                            player_status = f"in_{other_game}"
+                _LOGGER.debug("Checking for current game first...")
+                current_game = await self._fetch_current_game()
+                if current_game:
+                    _LOGGER.info("Player is currently in League of Legends game")
+                    current_game_data = await self._process_current_game(current_game)
+                    player_status = "in_game"
+                else:
+                    _LOGGER.debug("Player not in current game, checking recent activity...")
+                    player_status = await self._fetch_player_status()
+                    _LOGGER.info("Player status: %s", player_status)
             except Exception as err:
                 _LOGGER.warning("Error checking player status: %s", err)
                 player_status = "unknown"
@@ -530,17 +523,8 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         return {"rank": "Unknown"}
 
     async def _fetch_player_status(self) -> str:
-        """Fetch player status based on recent activity."""
-        # 1. Check if currently in a League game
-        try:
-            current_game = await self._fetch_current_game()
-            if current_game:
-                _LOGGER.info("Player is currently in League game")
-                return "in_game"
-        except Exception as err:
-            _LOGGER.debug("Error checking current game: %s", err)
-        
-        # 2. Check recent activity from last match
+        """Fetch player status based on recent activity (not including current game check)."""
+        # Check recent activity from last match
         if self._last_match_data:
             last_match_timestamp = self._last_match_data.get("game_end_timestamp", 0)
             if last_match_timestamp > 0:
@@ -549,20 +533,20 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                 time_diff_hours = (current_time - last_match_timestamp) / (1000 * 60 * 60)  # Convert to hours
                 
                 if time_diff_hours <= 4:
-                    _LOGGER.info("Last match was %.1f hours ago - Recently Played", time_diff_hours)
+                    _LOGGER.info("Last match was %.1f hours ago - Played Recently", time_diff_hours)
                     return "recently_played"
                 else:
                     _LOGGER.info("Last match was %.1f hours ago - Touching Grass", time_diff_hours)
                     return "touching_grass"
         
-        # 3. If no match data available, check if we have any match history
+        # If no match data available, check if we have any match history
         if self._match_history and len(self._match_history) > 0:
             # We have match history but no recent match data processed yet
             # Default to recently played until we get match details
             _LOGGER.debug("Have match history but no processed match data yet")
             return "recently_played"
         
-        # 4. No match data at all - probably touching grass
+        # No match data at all - probably touching grass
         _LOGGER.debug("No match history found - likely touching grass")
         return "touching_grass"
 

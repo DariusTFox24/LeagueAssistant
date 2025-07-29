@@ -44,7 +44,7 @@ PLATFORM_REGIONS = list(REGION_CLUSTERS.keys())
 # Game states
 GAME_STATES = {
     "in_game": "In Game",
-    "recently_played": "Recently Played",
+    "recently_played": "Played Recently",
     "touching_grass": "Touching Grass",
     "unknown": "Unknown"
 }

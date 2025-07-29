@@ -80,7 +80,7 @@ The integration creates 12 comprehensive sensors for each summoner:
 
 | Sensor | Description | Example Value |
 |--------|-------------|---------------|
-| `sensor.lol_{summoner}_game_state` | Honest game status detection | "In Game", "Recently Played", "Touching Grass" |
+| `sensor.lol_{summoner}_game_state` | Honest game status detection | "In Game", "Played Recently", "Touching Grass" |
 | `sensor.lol_{summoner}_kills` | Kills from latest match | `7` |
 | `sensor.lol_{summoner}_deaths` | Deaths from latest match | `2` |
 | `sensor.lol_{summoner}_assists` | Assists from latest match | `12` |
@@ -96,7 +96,7 @@ The integration creates 12 comprehensive sensors for each summoner:
 
 **Honest Status Based on API Reality:**
 - **"In Game"** - Currently in an active League match
-- **"Recently Played"** - Last match ended within 4 hours
+- **"Played Recently"** - Last match ended within 4 hours
 - **"Touching Grass"** - Last match was 4+ hours ago
 
 *Note: Riot API doesn't provide real online/offline status, so we use honest detection based on actual available data.*
