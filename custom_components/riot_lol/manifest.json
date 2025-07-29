@@ -1,14 +1,14 @@
 {
   "domain": "riot_lol",
-  "name": "League of Legends Stats",
-  "version": "1.1.0",
-  "documentation": "https://github.com/your-username/league-assistant",
-  "issue_tracker": "https://github.com/your-username/league-assistant/issues",
+  "name": "League of Legends Stats Integration",
+  "version": "1.1.1",
+  "documentation": "https://github.com/DariusTFox24/league-assistant",
+  "issue_tracker": "https://github.com/DariusTFox24/league-assistant/issues",
   "requirements": ["aiohttp>=3.8.0"],
   "config_flow": true,
   "iot_class": "cloud_polling",
   "dependencies": [],
-  "codeowners": ["@your-username"],
+  "codeowners": ["@DariusTFox24"],
   "integration_type": "service",
   "quality_scale": "silver"
 }

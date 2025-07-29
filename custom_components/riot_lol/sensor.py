@@ -35,6 +35,7 @@ async def async_setup_entry(
         RiotLoLLatestMatchSensor(coordinator, config_entry),
         RiotLoLLevelSensor(coordinator, config_entry),
         RiotLoLWinStateSensor(coordinator, config_entry),
+        RiotLoLWinRateSensor(coordinator, config_entry),
     ]
     
     async_add_entities(sensors, True)
@@ -378,4 +379,46 @@ class RiotLoLWinStateSensor(RiotLoLBaseSensor):
             "champion": latest_match_data.get("champion"),
             "game_mode": latest_match_data.get("game_mode"),
             "win": latest_match_data.get("win"),
+        }
+
+
+class RiotLoLWinRateSensor(RiotLoLBaseSensor):
+    """Sensor for current ranked win rate percentage."""
+
+    def __init__(self, coordinator: RiotLoLDataUpdateCoordinator, config_entry: ConfigEntry):
+        """Initialize the win rate sensor."""
+        super().__init__(coordinator, config_entry, "win_rate")
+        self._attr_name = "Ranked Win Rate"
+        self._attr_icon = "mdi:percent"
+        self._attr_unit_of_measurement = "%"
+        self._attr_state_class = "measurement"
+
+    @property
+    def native_value(self):
+        """Return the current ranked win rate percentage."""
+        if not self.coordinator.data:
+            return None
+        
+        # Get win rate from ranked data
+        win_rate = self.coordinator.data.get("win_rate")
+        if win_rate is not None:
+            return round(win_rate, 1)
+        else:
+            return None
+
+    @property
+    def extra_state_attributes(self):
+        """Return additional win rate information."""
+        if not self.coordinator.data:
+            return {}
+        
+        wins = self.coordinator.data.get("wins", 0)
+        losses = self.coordinator.data.get("losses", 0)
+        total_games = wins + losses
+        
+        return {
+            "wins": wins,
+            "losses": losses,
+            "total_games": total_games,
+            "rank": self.coordinator.data.get("rank", "Unranked"),
         }
