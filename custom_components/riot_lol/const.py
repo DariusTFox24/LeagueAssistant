@@ -151,5 +151,9 @@ SENSOR_TYPES = [
     "assists",
     "kda",
     "champion",
-    "rank"
+    "rank",
+    "latest_match",
+    "level",
+    "win_state",
+    "win_rate"
 ]
