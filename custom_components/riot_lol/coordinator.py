@@ -10,7 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL, QUEUE_TYPES, GAME_MODES, CHAMPION_NAMES, MAP_NAMES, GAME_TYPES, IN_GAME_SCAN_INTERVAL, IDLE_SCAN_INTERVAL
+from .const import REGION_CLUSTERS, GAME_STATES, DEFAULT_SCAN_INTERVAL, QUEUE_TYPES, GAME_MODES, CHAMPION_NAMES, MAP_NAMES, GAME_TYPES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -126,145 +126,46 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             except Exception as err:
                 _LOGGER.warning("Error fetching match history: %s", err)
             
-            # Check player status and current game with improved stability
+            # Check player status and current game
             player_status = None
             current_game_data = None
             try:
                 _LOGGER.debug("Checking for current game first...")
                 current_game = await self._fetch_current_game()
-                if current_game and isinstance(current_game, dict):
+                if current_game:
                     _LOGGER.info("Player is currently in League of Legends game - processing game data")
-                    try:
-                        current_game_data = await self._process_current_game(current_game)
-                        if current_game_data and isinstance(current_game_data, dict):
-                            player_status = "in_game"
-                            _LOGGER.info("Current game data processed successfully: state=%s, game_mode=%s, champion=%s", 
-                                       current_game_data.get("state"), 
-                                       current_game_data.get("game_mode"), 
-                                       current_game_data.get("champion"))
-                        else:
-                            _LOGGER.warning("Current game processing returned invalid data, falling back to status check")
-                            current_game_data = None
-                            player_status = await self._fetch_player_status()
-                    except Exception as process_err:
-                        _LOGGER.warning("Error processing current game data: %s", process_err)
-                        current_game_data = None
-                        player_status = await self._fetch_player_status()
+                    current_game_data = await self._process_current_game(current_game)
+                    player_status = "in_game"
+                    _LOGGER.info("Current game data processed successfully: state=%s, game_mode=%s, champion=%s", 
+                               current_game_data.get("state"), 
+                               current_game_data.get("game_mode"), 
+                               current_game_data.get("champion"))
                 else:
-                    # Only check recent activity if we're confident the player is not in game
-                    # Add stability check - if we recently detected in-game, be more conservative
-                    recent_in_game = (hasattr(self, '_last_successful_data') and 
-                                    self._last_successful_data.get("state") == "In Game" and
-                                    hasattr(self, '_last_in_game_time') and
-                                    (datetime.now() - self._last_in_game_time).total_seconds() < 120)  # 2 minutes
-                    
-                    if recent_in_game:
-                        _LOGGER.info("Recently detected in-game but current game check failed, being conservative")
-                        # Try one more time with longer timeout before falling back
-                        _LOGGER.debug("Attempting secondary current game check...")
-                        current_game = await self._fetch_current_game()
-                        if current_game:
-                            _LOGGER.info("Secondary check found current game!")
-                            current_game_data = await self._process_current_game(current_game)
-                            player_status = "in_game"
-                        else:
-                            _LOGGER.debug("Secondary check also failed, proceeding with recent activity check...")
-                            player_status = await self._fetch_player_status()
-                    else:
-                        _LOGGER.debug("Player not in current game, checking recent activity...")
-                        player_status = await self._fetch_player_status()
-                    
+                    _LOGGER.debug("Player not in current game, checking recent activity...")
+                    player_status = await self._fetch_player_status()
                     _LOGGER.info("Player status: %s", player_status)
             except Exception as err:
                 _LOGGER.warning("Error checking player status: %s", err)
-                # If we had a recent successful state, maintain it during errors
-                if (hasattr(self, '_last_successful_data') and 
-                    self._last_successful_data.get("state") in ["In Game"] and
-                    hasattr(self, '_last_in_game_time') and
-                    (datetime.now() - self._last_in_game_time).total_seconds() < 180):  # 3 minutes
-                    _LOGGER.warning("Error occurred but maintaining recent 'In Game' state")
-                    player_status = "in_game"
-                    current_game_data = self._last_successful_data.copy()
-                    current_game_data["last_updated"] = datetime.now().isoformat()
-                    current_game_data["_error_fallback"] = True
-                else:
-                    player_status = "unknown"
+                player_status = "unknown"
             
             # Fetch ranked stats
             ranked_stats = {}
             try:
                 _LOGGER.debug("Fetching ranked stats...")
                 ranked_stats = await self._fetch_ranked_stats()
-                if not ranked_stats or not isinstance(ranked_stats, dict):
-                    ranked_stats = {"rank": "Unknown"}
             except Exception as err:
                 _LOGGER.warning("Error fetching ranked stats: %s", err)
                 ranked_stats = {"rank": "Unknown"}
             
             # Fetch summoner level
             _LOGGER.debug("Fetching summoner level...")
-            try:
-                summoner_level = await self._fetch_summoner_level()
-                if not isinstance(summoner_level, int):
-                    summoner_level = 0
-            except Exception as err:
-                _LOGGER.warning("Error fetching summoner level: %s", err)
-                summoner_level = 0
+            summoner_level = await self._fetch_summoner_level()
             
             self._consecutive_errors = 0  # Reset error counter on success
             
             # Build comprehensive data combining current game, latest match, and ranked stats
             _LOGGER.debug("Building comprehensive data...")
-            try:
-                result = self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level, player_status)
-                if not result or not isinstance(result, dict):
-                    _LOGGER.error("_build_comprehensive_data returned invalid result, using fallback")
-                    result = {
-                        "state": GAME_STATES.get("unknown", "Unknown"),
-                        "last_updated": datetime.now().isoformat(),
-                        "summoner_level": summoner_level,
-                        "rank": "Unknown",
-                        "game_mode": None,
-                        "queue_type": None,
-                        "champion": "Error",
-                        "match_id": None,
-                        "kills": 0,
-                        "deaths": 0,
-                        "assists": 0,
-                        "kda": 0.0,
-                    }
-            except Exception as build_err:
-                _LOGGER.error("Error building comprehensive data: %s", build_err, exc_info=True)
-                result = {
-                    "state": GAME_STATES.get("unknown", "Unknown"),
-                    "last_updated": datetime.now().isoformat(),
-                    "summoner_level": summoner_level,
-                    "rank": "Unknown",
-                    "game_mode": None,
-                    "queue_type": None,
-                    "champion": "Error",
-                    "match_id": None,
-                    "kills": 0,
-                    "deaths": 0,
-                    "assists": 0,
-                    "kda": 0.0,
-                }
-            
-            # Adaptive scan interval based on game state
-            current_state = result.get("state")
-            if current_state == "In Game":
-                # More frequent updates when in game
-                new_interval = timedelta(seconds=IN_GAME_SCAN_INTERVAL)
-                _LOGGER.debug("Player in game, setting update interval to %d seconds", IN_GAME_SCAN_INTERVAL)
-            else:
-                # Less frequent updates when not in game
-                new_interval = timedelta(seconds=IDLE_SCAN_INTERVAL)
-                _LOGGER.debug("Player not in game, setting update interval to %d seconds", IDLE_SCAN_INTERVAL)
-            
-            # Update the coordinator's update interval if it changed significantly
-            if abs((new_interval - self.update_interval).total_seconds()) > 30:
-                self.update_interval = new_interval
-                _LOGGER.info("Updated scan interval to %d seconds based on game state", new_interval.total_seconds())
+            result = self._build_comprehensive_data(current_game_data, ranked_stats, summoner_level, player_status)
             
             # Cache successful result
             self._last_successful_data = result.copy()
@@ -421,7 +322,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Unexpected error fetching summoner info: %s", err)
 
     async def _fetch_current_game(self) -> Optional[Dict[str, Any]]:
-        """Check if player is currently in a game using PUUID (modern approach) with improved resilience."""
+        """Check if player is currently in a game using PUUID (modern approach) with retry logic."""
         if not self._puuid:
             _LOGGER.debug("No PUUID available, skipping current game check")
             return None
@@ -440,9 +341,6 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     if response.status == 200:
                         game_data = await response.json()
                         _LOGGER.info("Player is currently in game (PUUID endpoint) - attempt %d", attempt + 1)
-                        # Cache the successful game detection
-                        if hasattr(self, '_last_game_check_time'):
-                            self._last_in_game_time = datetime.now()
                         return game_data
                     elif response.status == 404:
                         # Not in game - this is definitive
@@ -455,10 +353,6 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                             continue
                         else:
                             _LOGGER.warning("Rate limit exceeded for current game check after %d attempts", max_retries + 1)
-                            # If we recently detected a game and now hit rate limit, assume still in game
-                            if hasattr(self, '_last_in_game_time') and (datetime.now() - self._last_in_game_time).total_seconds() < 300:  # 5 minutes
-                                _LOGGER.info("Rate limited but recently was in game, maintaining 'In Game' state")
-                                return {"_cached_game_state": True}  # Special marker for cached state
                             return None
                     else:
                         if attempt < max_retries:
@@ -476,10 +370,6 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     continue
                 else:
                     _LOGGER.warning("Timeout checking current game after %d attempts", max_retries + 1)
-                    # If we recently detected a game and now timeout, assume still in game
-                    if hasattr(self, '_last_in_game_time') and (datetime.now() - self._last_in_game_time).total_seconds() < 300:  # 5 minutes
-                        _LOGGER.info("Timeout but recently was in game, maintaining 'In Game' state")
-                        return {"_cached_game_state": True}  # Special marker for cached state
                     return None
             except ClientResponseError as err:
                 if attempt < max_retries:
@@ -503,32 +393,6 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
     async def _process_current_game(self, game_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process current game data."""
         try:
-            # Handle cached state marker for resilience during API issues
-            if game_data.get("_cached_game_state"):
-                _LOGGER.info("Using cached 'In Game' state due to API issues")
-                # Return minimal in-game state if we can't get fresh data
-                if hasattr(self, '_last_successful_data') and self._last_successful_data.get("state") == "In Game":
-                    # Use last known game data but update timestamp
-                    cached_data = self._last_successful_data.copy()
-                    cached_data["last_updated"] = datetime.now().isoformat()
-                    cached_data["_is_cached"] = True
-                    return cached_data
-                else:
-                    # Fallback minimal state
-                    return {
-                        "state": GAME_STATES.get("in_game", "In Game"),
-                        "game_mode": "Unknown (API Issue)",
-                        "queue_type": "Unknown (API Issue)",
-                        "champion": "Unknown (API Issue)",
-                        "last_updated": datetime.now().isoformat(),
-                        "_is_cached": True,
-                        # Default values for required fields
-                        "kills": 0,
-                        "deaths": 0,
-                        "assists": 0,
-                        "kda": 0.0,
-                    }
-            
             # Find the player in the participants
             participant = None
             participants = game_data.get("participants", [])
@@ -992,24 +856,26 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
 
     def _build_comprehensive_data(self, current_game_data: Optional[Dict[str, Any]], ranked_stats: Dict[str, Any], summoner_level: int, player_status: str = "unknown") -> Dict[str, Any]:
         """Build comprehensive data combining current game, latest match, and other stats."""
-        # Start with base data - ensure ranked_stats is not None
-        if ranked_stats is None:
-            ranked_stats = {"rank": "Unknown"}
-            
+        # Start with base data
         data = {
             "last_updated": datetime.now().isoformat(),
             "summoner_level": summoner_level,
-            **ranked_stats,
         }
         
+        # Add ranked stats safely
+        if ranked_stats:
+            data.update(ranked_stats)
+        else:
+            data["rank"] = "Unknown"
+        
         # Determine the appropriate state based on player status and current game data
-        if current_game_data and isinstance(current_game_data, dict):
+        if current_game_data:
             _LOGGER.info("Player is in League of Legends game")
             data.update(current_game_data)
             # The state is already set correctly in current_game_data, don't override it
             
             # Add latest match stats for the stat entities (keeping current game stats as primary)
-            if self._last_match_data and isinstance(self._last_match_data, dict):
+            if self._last_match_data:
                 latest_match = self._last_match_data
                 data.update({
                     "latest_match_id": latest_match.get("match_id"),
@@ -1035,7 +901,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             # Set the state based on our honest detection
             data["state"] = state_map.get(player_status, GAME_STATES.get("touching_grass", "Touching Grass"))
             
-            if self._last_match_data and isinstance(self._last_match_data, dict):
+            if self._last_match_data:
                 latest_match = self._last_match_data
                 data.update({
                     "game_mode": latest_match.get("game_mode"),
