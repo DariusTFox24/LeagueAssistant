@@ -10,5 +10,6 @@
   "dependencies": [],
   "codeowners": ["@DariusTFox24"],
   "integration_type": "service",
-  "quality_scale": "silver"
+  "quality_scale": "silver",
+  "icon": "icon"
 }
