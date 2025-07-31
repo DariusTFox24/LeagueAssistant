@@ -59,8 +59,8 @@ class RiotLoLBaseSensor(CoordinatorEntity, SensorEntity):
         self._attr_device_info = {
             "identifiers": {(DOMAIN, config_entry.entry_id)},
             "name": f"LoL Stats - {riot_id}",
-            "manufacturer": "Riot Games",
-            "model": "League of Legends",
+            "manufacturer": "Fox_IoT Games",
+            "model": "League of Legends Sensor",
             "sw_version": region.upper(),
         }
 
