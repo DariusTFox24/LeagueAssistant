@@ -174,7 +174,7 @@ All Riot Games regions:
 - **Asia**: kr, jp1
 - **Southeast Asia**: oc1, ph2, sg2, th2, tw2, vn2
 
-## ⚡ API Rate Limits & Performance
+##  API Rate Limits & Performance
 
 - **Modern PUUID Endpoints** - Uses latest Riot API recommendations
 - **Respects Riot's rate limits** automatically
