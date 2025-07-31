@@ -9,7 +9,7 @@
         }
       },
       "summoner": {
-        "title": "Add League of Legends Summoner",
+        "title": "Add Summoner to LeagueAssistant",
         "description": "Add a League of Legends summoner to track",
         "data": {
           "game_name": "Riot ID (Game Name)",
@@ -19,7 +19,7 @@
         }
       },
       "user": {
-        "title": "League of Legends Integration",
+        "title": "LeagueAssistant Integration",
         "description": "Configure your Riot API settings using your Riot ID",
         "data": {
           "api_key": "Riot API Key",
