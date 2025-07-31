@@ -211,13 +211,6 @@ logger:
     custom_components.lol_assist: debug
 ```
 
-## What's New in v3.0.0
-
-- Domain changed from `riot_lol` to `lol_assist` for legal safety
-- Entity IDs remain as `lol_stats_*` for automation compatibility  
-- Updated branding to "LeagueAssistant"
-- Improved legal compliance documentation
-
 ## Contributing
 
 Pull requests welcome!
