@@ -1,4 +1,9 @@
-"""Data update coordinator for Riot LoL integration."""
+"""
+Data update coordinator for LeagueAssistant - Unofficial League of Legends Integration.
+
+LeagueAssistant is not affiliated with Riot Games, Inc. or League of Legends.
+This is an independent, community-created integration that uses the public Riot Games API.
+"""
 import asyncio
 import logging
 from datetime import datetime, timedelta

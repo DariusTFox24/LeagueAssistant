@@ -1,4 +1,8 @@
-"""Constants for the Riot LoL integration."""
+"""
+Constants for LeagueAssistant - Unofficial League of Legends Integration.
+
+LeagueAssistant is not affiliated with Riot Games, Inc. or League of Legends.
+"""
 
 DOMAIN = "riot_lol"
 
