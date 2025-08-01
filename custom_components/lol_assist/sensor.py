@@ -195,7 +195,7 @@ class RiotLoLKDASensor(RiotLoLBaseSensor):
 
     def __init__(self, coordinator: RiotLoLDataUpdateCoordinator, config_entry: ConfigEntry):
         """Initialize the KDA sensor."""
-        super().__init__(coordinator, config_entry, "kda")
+        super().__init__(coordinator, config_entry, "kda_ratio")
         self._attr_name = "KDA Ratio"
         self._attr_icon = "mdi:calculator"
 
