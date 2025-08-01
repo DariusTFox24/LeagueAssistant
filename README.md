@@ -174,7 +174,7 @@ All Riot Games regions:
 - **Asia**: kr, jp1
 - **Southeast Asia**: oc1, ph2, sg2, th2, tw2, vn2
 
-## ⚡ API Rate Limits & Performance
+##  API Rate Limits & Performance
 
 - **Modern PUUID Endpoints** - Uses latest Riot API recommendations
 - **Respects Riot's rate limits** automatically
@@ -210,13 +210,6 @@ logger:
   logs:
     custom_components.lol_assist: debug
 ```
-
-## What's New in v3.0.0
-
-- Domain changed from `riot_lol` to `lol_assist` for legal safety
-- Entity IDs remain as `lol_stats_*` for automation compatibility  
-- Updated branding to "LeagueAssistant"
-- Improved legal compliance documentation
 
 ## Contributing
 
