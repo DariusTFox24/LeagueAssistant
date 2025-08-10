@@ -49,8 +49,8 @@ class RiotLoLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             api_key = user_input["api_key"]
-            send_notifications = user_input.get("send_notifications", True)
-            api_key_24h_type = user_input.get("api_key_24h_type", True)
+            send_notifications = user_input.get("Key expiration notifications", True)
+            api_key_24h_type = user_input.get("24-hour API key reminders", True)
             
             # Validate API key by making a test request
             validation_result = await self._validate_api_key(api_key)
@@ -74,8 +74,8 @@ class RiotLoLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         data_schema = vol.Schema({
             vol.Required("api_key"): str,
-            vol.Optional("send_notifications", default=True): bool,
-            vol.Optional("api_key_24h_type", default=True): bool,
+            vol.Optional("Key expiration notifications", default=True): bool,
+            vol.Optional("24-hour API key reminders", default=True): bool,
         })
 
         return self.async_show_form(
@@ -275,8 +275,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             # Extract values from user input
             new_api_key = user_input["api_key"]
-            send_notifications = user_input.get("send_notifications", True)
-            api_key_24h_type = user_input.get("api_key_24h_type", True)
+            send_notifications = user_input.get("Key expiration notifications", True)
+            api_key_24h_type = user_input.get("24-hour API key reminders", True)
             
             # Check if API key has changed
             current_api_key = self.config_entry.data.get("api_key", "")
@@ -291,8 +291,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                         step_id="api_key_options",
                         data_schema=vol.Schema({
                             vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
-                            vol.Optional("send_notifications", default=send_notifications): bool,
-                            vol.Optional("api_key_24h_type", default=api_key_24h_type): bool,
+                            vol.Optional("Key expiration notifications", default=send_notifications): bool,
+                            vol.Optional("24-hour API key reminders", default=api_key_24h_type): bool,
                         }),
                         errors=errors
                     )
@@ -329,8 +329,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
             step_id="api_key_options",
             data_schema=vol.Schema({
                 vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
-                vol.Optional("send_notifications", default=self.config_entry.options.get("send_notifications", True)): bool,
-                vol.Optional("api_key_24h_type", default=self.config_entry.options.get("api_key_24h_type", True)): bool,
+                vol.Optional("Key expiration notifications", default=self.config_entry.options.get("send_notifications", True)): bool,
+                vol.Optional("24-hour API key reminders", default=self.config_entry.options.get("api_key_24h_type", True)): bool,
             })
         )
 
