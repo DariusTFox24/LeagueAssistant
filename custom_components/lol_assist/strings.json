@@ -6,8 +6,8 @@
         "description": "Configure your Riot Games API key. Get your API key from {api_url}",
         "data": {
           "api_key": "Riot Games API Key",
-          "send_notifications": "Send API key expiration notifications",
-          "api_key_24h_type": "Using 24-hour development API key (sends expiration reminders)"
+          "send_notifications": "Key expiration notifications",
+          "api_key_24h_type": "24-hour API key reminders"
         }
       },
       "summoner": {
@@ -56,8 +56,8 @@
         "description": "Update your Riot Games API key and notification settings",
         "data": {
           "api_key": "Riot Games API Key",
-          "send_notifications": "Send API key expiration notifications",
-          "api_key_24h_type": "Using 24-hour development API key (sends expiration reminders)"
+          "send_notifications": "Key expiration notifications",
+          "api_key_24h_type": "24-hour API key reminders"
         }
       },
       "summoner_options": {
