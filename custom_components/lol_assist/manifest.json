@@ -1,7 +1,7 @@
 {
   "domain": "lol_assist",
   "name": "LeagueAssistant",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "documentation": "https://github.com/DariusTFox24/league-assistant",
   "issue_tracker": "https://github.com/DariusTFox24/league-assistant/issues",
   "requirements": ["aiohttp>=3.8.0"],

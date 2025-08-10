@@ -8,6 +8,10 @@
           "api_key": "Riot Games API Key",
           "send_notifications": "Key expiration notifications",
           "api_key_24h_type": "24-hour API key reminders"
+        },
+        "data_description": {
+          "send_notifications": "Get notified when your API key expires or becomes invalid",
+          "api_key_24h_type": "Enable reminders for 24-hour development API keys (22 hours after update)"
         }
       },
       "summoner": {
@@ -58,6 +62,10 @@
           "api_key": "Riot Games API Key",
           "send_notifications": "Key expiration notifications",
           "api_key_24h_type": "24-hour API key reminders"
+        },
+        "data_description": {
+          "send_notifications": "Get notified when your API key expires or becomes invalid",
+          "api_key_24h_type": "Enable reminders for 24-hour development API keys (22 hours after update)"
         }
       },
       "summoner_options": {
