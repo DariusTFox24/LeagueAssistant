@@ -326,10 +326,12 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     existing_options = self.config_entry.options.copy()
                     existing_options.update(new_options)
                     _LOGGER.error(f"API key unchanged - updating only options: {existing_options}")
+                    _LOGGER.error(f"Config entry options before update: {self.config_entry.options}")
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, 
                         options=existing_options
                     )
+                    _LOGGER.error(f"Config entry options after update: {self.config_entry.options}")
                 
                 _LOGGER.error("=== OPTIONS UPDATE COMPLETED ===")
                 return self.async_create_entry(title="", data={})
@@ -338,6 +340,7 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
             current_notifications = self.config_entry.options.get("send_notifications", True)
             current_24h = self.config_entry.options.get("api_key_24h_type", True)
             _LOGGER.error(f"Showing API key form - current notifications: {current_notifications}, 24h: {current_24h}")
+            _LOGGER.error(f"Full config entry options: {self.config_entry.options}")
             
             return self.async_show_form(
                 step_id="init",
