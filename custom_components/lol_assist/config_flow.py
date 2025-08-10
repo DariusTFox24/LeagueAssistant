@@ -327,9 +327,18 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     existing_options.update(new_options)
                     _LOGGER.error(f"API key unchanged - updating only options: {existing_options}")
                     _LOGGER.error(f"Config entry options before update: {self.config_entry.options}")
+                    
+                    # Try a more direct approach - pass all options explicitly
+                    final_options = {
+                        "send_notifications": send_notifications,
+                        "api_key_24h_type": api_key_24h_type,
+                        "api_key_update_time": existing_options.get("api_key_update_time", datetime.now().isoformat()),
+                    }
+                    _LOGGER.error(f"Final options to save: {final_options}")
+                    
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, 
-                        options=existing_options
+                        options=final_options
                     )
                     _LOGGER.error(f"Config entry options after update: {self.config_entry.options}")
                 
@@ -338,14 +347,19 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
 
             # Show form with current values - get fresh config entry
             # The self.config_entry might be stale, so get the current one
+            _LOGGER.error(f"Looking for config entry with ID: {self.config_entry.entry_id}")
             current_entry = None
-            for entry in self.hass.config_entries.async_entries(DOMAIN):
+            all_entries = self.hass.config_entries.async_entries(DOMAIN)
+            _LOGGER.error(f"Found {len(all_entries)} entries in domain")
+            
+            for entry in all_entries:
+                _LOGGER.error(f"Entry ID: {entry.entry_id}, Type: {entry.data.get('config_type')}, Options: {entry.options}")
                 if entry.entry_id == self.config_entry.entry_id:
                     current_entry = entry
                     break
             
             if current_entry:
-                _LOGGER.error(f"Fresh config entry options: {current_entry.options}")
+                _LOGGER.error(f"Fresh config entry found! Options: {current_entry.options}")
                 current_notifications = current_entry.options.get("send_notifications", True)
                 current_24h = current_entry.options.get("api_key_24h_type", True)
             else:
@@ -353,8 +367,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                 current_notifications = self.config_entry.options.get("send_notifications", True)
                 current_24h = self.config_entry.options.get("api_key_24h_type", True)
             
-            _LOGGER.error(f"Showing API key form - current notifications: {current_notifications}, 24h: {current_24h}")
-            _LOGGER.error(f"Full config entry options: {self.config_entry.options}")
+            _LOGGER.error(f"Using values - notifications: {current_notifications}, 24h: {current_24h}")
+            _LOGGER.error(f"Original config entry options: {self.config_entry.options}")
             
             return self.async_show_form(
                 step_id="init",
