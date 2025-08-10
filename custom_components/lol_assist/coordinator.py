@@ -104,7 +104,8 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         from .const import DOMAIN
         for entry in self._hass.config_entries.async_entries(DOMAIN):
             if entry.data.get("config_type") == "api_key":
-                return entry.options.get("send_notifications", True)
+                # Try options first, then fallback to data
+                return entry.options.get("send_notifications") or entry.data.get("send_notifications", True)
         return True
 
     def _is_24h_api_key(self) -> bool:
@@ -112,7 +113,8 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         from .const import DOMAIN
         for entry in self._hass.config_entries.async_entries(DOMAIN):
             if entry.data.get("config_type") == "api_key":
-                return entry.options.get("api_key_24h_type", True)  # Default to True for safety
+                # Try options first, then fallback to data
+                return entry.options.get("api_key_24h_type") or entry.data.get("api_key_24h_type", True)  # Default to True for safety
         return True
 
     def _can_send_notification(self) -> bool:

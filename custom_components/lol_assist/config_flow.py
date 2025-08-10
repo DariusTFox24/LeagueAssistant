@@ -62,6 +62,8 @@ class RiotLoLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data={
                         "config_type": "api_key",
                         "api_key": api_key,
+                        "send_notifications": send_notifications,
+                        "api_key_24h_type": api_key_24h_type,
                     },
                     options={
                         "send_notifications": send_notifications,
@@ -314,6 +316,9 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     # Update both data and options with new timestamp
                     new_data = self.config_entry.data.copy()
                     new_data["api_key"] = new_api_key
+                    # Store notification settings in data as well as options for persistence
+                    new_data["send_notifications"] = send_notifications
+                    new_data["api_key_24h_type"] = api_key_24h_type
                     new_options["api_key_update_time"] = datetime.now().isoformat()  # Reset timer when key is updated
                     _LOGGER.error(f"API key changed - updating data and options")
                     self.hass.config_entries.async_update_entry(
@@ -323,6 +328,11 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     )
                 else:
                     # Only update options, preserve existing api_key_update_time
+                    # Also store in data for persistence
+                    new_data = self.config_entry.data.copy()
+                    new_data["send_notifications"] = send_notifications
+                    new_data["api_key_24h_type"] = api_key_24h_type
+                    
                     existing_options = self.config_entry.options.copy()
                     existing_options.update(new_options)
                     _LOGGER.error(f"API key unchanged - updating only options: {existing_options}")
@@ -338,6 +348,7 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, 
+                        data=new_data,
                         options=final_options
                     )
                     _LOGGER.error(f"Config entry options after update: {self.config_entry.options}")
@@ -360,15 +371,18 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
             
             if current_entry:
                 _LOGGER.error(f"Fresh config entry found! Options: {current_entry.options}")
-                current_notifications = current_entry.options.get("send_notifications", True)
-                current_24h = current_entry.options.get("api_key_24h_type", True)
+                _LOGGER.error(f"Fresh config entry data: {current_entry.data}")
+                # Try to get values from options first, then fallback to data
+                current_notifications = current_entry.options.get("send_notifications") or current_entry.data.get("send_notifications", True)
+                current_24h = current_entry.options.get("api_key_24h_type") or current_entry.data.get("api_key_24h_type", True)
             else:
                 _LOGGER.error("Could not find fresh config entry, using self.config_entry")
-                current_notifications = self.config_entry.options.get("send_notifications", True)
-                current_24h = self.config_entry.options.get("api_key_24h_type", True)
+                current_notifications = self.config_entry.options.get("send_notifications") or self.config_entry.data.get("send_notifications", True)
+                current_24h = self.config_entry.options.get("api_key_24h_type") or self.config_entry.data.get("api_key_24h_type", True)
             
             _LOGGER.error(f"Using values - notifications: {current_notifications}, 24h: {current_24h}")
             _LOGGER.error(f"Original config entry options: {self.config_entry.options}")
+            _LOGGER.error(f"Original config entry data: {self.config_entry.data}")
             
             return self.async_show_form(
                 step_id="init",
