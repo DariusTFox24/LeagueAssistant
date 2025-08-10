@@ -74,6 +74,14 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         self._consecutive_errors = 0
         self._max_errors = 5
         
+        # Notification throttling and tracking
+        self._last_notification_time: Optional[datetime] = None
+        self._notification_cooldown = timedelta(hours=1)  # Don't spam notifications
+        self._last_24h_reminder_time: Optional[datetime] = None
+        self._24h_reminder_cooldown = timedelta(hours=12)  # Remind twice per day max
+        self._api_key_update_time: Optional[datetime] = None  # Track when API key was last updated
+        self._24h_reminder_threshold = timedelta(hours=22)  # Send reminder after 22 hours
+        
         riot_id = f"{game_name}#{tag_line}" if tag_line else game_name
         
         super().__init__(
@@ -91,6 +99,157 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                 return entry.data.get("api_key")
         return None
 
+    def _should_send_notifications(self) -> bool:
+        """Check if notifications are enabled for API key issues."""
+        from .const import DOMAIN
+        for entry in self._hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get("config_type") == "api_key":
+                return entry.options.get("send_notifications", True)
+        return True
+
+    def _is_24h_api_key(self) -> bool:
+        """Check if user has indicated they're using a 24-hour development API key."""
+        from .const import DOMAIN
+        for entry in self._hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get("config_type") == "api_key":
+                return entry.options.get("api_key_24h_type", True)  # Default to True for safety
+        return True
+
+    def _can_send_notification(self) -> bool:
+        """Check if enough time has passed since last notification to avoid spam."""
+        if self._last_notification_time is None:
+            return True
+        
+        time_since_last = datetime.now() - self._last_notification_time
+        return time_since_last >= self._notification_cooldown
+
+    def _can_send_24h_reminder(self) -> bool:
+        """Check if enough time has passed since last 24h reminder."""
+        if self._last_24h_reminder_time is None:
+            return True
+        
+        time_since_last = datetime.now() - self._last_24h_reminder_time
+        return time_since_last >= self._24h_reminder_cooldown
+
+    async def _send_api_key_notification(self, message: str, title: str = "LeagueAssistant API Key Issue", is_24h_reminder: bool = False):
+        """Send a notification about API key issues with throttling."""
+        if not self._should_send_notifications():
+            return
+        
+        # Check throttling
+        if is_24h_reminder:
+            if not self._can_send_24h_reminder():
+                _LOGGER.debug("24h reminder throttled - too soon since last reminder")
+                return
+            self._last_24h_reminder_time = datetime.now()
+        else:
+            if not self._can_send_notification():
+                _LOGGER.debug("API key notification throttled - too soon since last notification")
+                return
+            self._last_notification_time = datetime.now()
+        
+        # Generate unique notification ID
+        notification_type = "24h_reminder" if is_24h_reminder else "api_key_issue"
+        notification_id = f"leagueassistant_{notification_type}_{datetime.now().strftime('%Y%m%d_%H')}"
+        
+        # Send persistent notification to Home Assistant
+        await self._hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": title,
+                "message": message,
+                "notification_id": notification_id
+            }
+        )
+        
+        log_level = "info" if is_24h_reminder else "warning"
+        getattr(_LOGGER, log_level)("API Key notification sent: %s", message)
+
+    def _get_api_key_update_time(self) -> Optional[datetime]:
+        """Get the timestamp when the API key was last updated."""
+        from .const import DOMAIN
+        for entry in self._hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get("config_type") == "api_key":
+                # Try to get from options first (newer format)
+                update_time_str = entry.options.get("api_key_update_time")
+                if not update_time_str:
+                    # Fall back to data (compatibility)
+                    update_time_str = entry.data.get("api_key_update_time")
+                
+                if update_time_str:
+                    try:
+                        return datetime.fromisoformat(update_time_str)
+                    except ValueError:
+                        _LOGGER.warning("Invalid API key update time format: %s", update_time_str)
+                        return None
+                else:
+                    # No update time stored, consider it as just updated now (for existing installations)
+                    return datetime.now()
+        return None
+
+    def _should_send_24h_reminder(self) -> bool:
+        """Check if 22-hour timer has elapsed since last API key update."""
+        if not self._is_24h_api_key():
+            return False
+        
+        api_key_update_time = self._get_api_key_update_time()
+        if not api_key_update_time:
+            return False
+        
+        time_since_update = datetime.now() - api_key_update_time
+        
+        # Send reminder if 22+ hours have passed since API key update
+        # and we haven't sent a reminder in the last 2 hours (to avoid spam)
+        if time_since_update >= self._24h_reminder_threshold:
+            if self._last_24h_reminder_time is None:
+                return True
+            
+            time_since_last_reminder = datetime.now() - self._last_24h_reminder_time
+            return time_since_last_reminder >= timedelta(hours=2)  # Reduced cooldown for 22h timer
+        
+        return False
+
+    def _can_send_24h_reminder(self) -> bool:
+        """Check if we should send 24h reminder based on API key update timer."""
+        return self._should_send_24h_reminder()
+
+    async def _check_24h_api_key_expiration(self):
+        """Check if 24-hour API key is approaching expiration based on update timer."""
+        if not self._should_send_24h_reminder():
+            return
+        
+        api_key_update_time = self._get_api_key_update_time()
+        if not api_key_update_time:
+            return
+        
+        time_since_update = datetime.now() - api_key_update_time
+        hours_since_update = int(time_since_update.total_seconds() / 3600)
+        hours_remaining = 24 - hours_since_update
+        
+        # Create a more specific message based on time elapsed
+        if hours_remaining <= 2:
+            urgency = "expires very soon (within 2 hours)"
+            title = "LeagueAssistant: API Key Expiring Soon!"
+        elif hours_remaining <= 4:
+            urgency = f"expires in approximately {hours_remaining} hours"
+            title = "LeagueAssistant: API Key Expiring Soon"
+        else:
+            urgency = f"was updated {hours_since_update} hours ago and may expire soon"
+            title = "LeagueAssistant: 24h API Key Reminder"
+        
+        message = (
+            f"Your 24-hour development API key {urgency}. "
+            f"Please update it in the LeagueAssistant integration settings. "
+            f"Visit the Riot Developer Portal to get a new key or consider upgrading to a production key."
+        )
+        
+        await self._send_api_key_notification(
+            message,
+            title,
+            is_24h_reminder=True
+        )
+
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers with API key."""
         api_key = self._get_api_key()
@@ -106,6 +265,9 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from Riot API."""
         _LOGGER.info("Starting data update cycle...")
+        
+        # Check for 24-hour API key expiration reminder
+        await self._check_24h_api_key_expiration()
         
         # Check if API key is available
         api_key = self._get_api_key()
@@ -265,7 +427,12 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                 elif response.status == 429:
                     raise UpdateFailed("Rate limit exceeded")
                 elif response.status == 401:
-                    raise UpdateFailed("Invalid API key")
+                    # API key expired or invalid - send notification
+                    await self._send_api_key_notification(
+                        "Your Riot Games API key has expired or is invalid. Please update it in the LeagueAssistant integration settings.",
+                        "LeagueAssistant: API Key Expired"
+                    )
+                    raise UpdateFailed("Invalid or expired API key")
                 elif response.status == 404:
                     raise UpdateFailed(f"Riot ID not found: {self._game_name}#{self._tag_line}")
                 else:
@@ -329,6 +496,11 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("Rate limit exceeded for summoner lookup")
                     return
                 elif response.status == 401:
+                    # API key expired or invalid - send notification
+                    await self._send_api_key_notification(
+                        "Your Riot Games API key has expired or is invalid. Please update it in the LeagueAssistant integration settings.",
+                        "LeagueAssistant: API Key Expired"
+                    )
                     _LOGGER.warning("Invalid API key for summoner lookup")
                     return
                 else:
@@ -375,6 +547,14 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                         else:
                             _LOGGER.warning("Rate limit exceeded for current game check after %d attempts", max_retries + 1)
                             return None
+                    elif response.status == 401:
+                        # API key expired or invalid - send notification
+                        await self._send_api_key_notification(
+                            "Your Riot Games API key has expired or is invalid. Please update it in the LeagueAssistant integration settings.",
+                            "LeagueAssistant: API Key Expired"
+                        )
+                        _LOGGER.warning("Invalid API key for current game check")
+                        return None
                     else:
                         if attempt < max_retries:
                             _LOGGER.warning("Error checking current game (status %d), retrying...", response.status)
@@ -559,12 +739,20 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
-                if response.status != 200:
+                if response.status == 200:
+                    match_data = await response.json()
+                    return self._process_match_data(match_data)
+                elif response.status == 401:
+                    # API key expired or invalid - send notification
+                    await self._send_api_key_notification(
+                        "Your Riot Games API key has expired or is invalid. Please update it in the LeagueAssistant integration settings.",
+                        "LeagueAssistant: API Key Expired"
+                    )
+                    _LOGGER.warning("Invalid API key for match details")
+                    return None
+                else:
                     _LOGGER.warning("Error fetching match details: %s", response.status)
                     return None
-                    
-                match_data = await response.json()
-                return self._process_match_data(match_data)
                 
         except ClientResponseError as err:
             _LOGGER.warning("HTTP error fetching match details: %s", err)

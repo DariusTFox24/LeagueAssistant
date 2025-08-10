@@ -49,16 +49,24 @@ class RiotLoLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             api_key = user_input["api_key"]
+            send_notifications = user_input.get("send_notifications", True)
+            api_key_24h_type = user_input.get("api_key_24h_type", True)
             
             # Validate API key by making a test request
             validation_result = await self._validate_api_key(api_key)
             if validation_result["valid"]:
-                # Create API key configuration entry
+                # Create API key configuration entry with update timestamp
+                from datetime import datetime
                 return self.async_create_entry(
                     title="Riot Games API Key",
                     data={
                         "config_type": "api_key",
                         "api_key": api_key,
+                    },
+                    options={
+                        "send_notifications": send_notifications,
+                        "api_key_24h_type": api_key_24h_type,
+                        "api_key_update_time": datetime.now().isoformat(),
                     }
                 )
             else:
@@ -66,6 +74,8 @@ class RiotLoLConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         data_schema = vol.Schema({
             vol.Required("api_key"): str,
+            vol.Optional("send_notifications", default=True): bool,
+            vol.Optional("api_key_24h_type", default=True): bool,
         })
 
         return self.async_show_form(
@@ -265,13 +275,22 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             # Validate new API key
             new_api_key = user_input["api_key"]
+            send_notifications = user_input.get("send_notifications", True)
+            api_key_24h_type = user_input.get("api_key_24h_type", True)
             validation_result = await self._validate_api_key(new_api_key)
             if validation_result["valid"]:
-                # Update the config entry data directly
+                # Update the config entry data and options with new timestamp
+                from datetime import datetime
                 new_data = self.config_entry.data.copy()
                 new_data["api_key"] = new_api_key
                 self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=new_data
+                    self.config_entry, 
+                    data=new_data,
+                    options={
+                        "send_notifications": send_notifications,
+                        "api_key_24h_type": api_key_24h_type,
+                        "api_key_update_time": datetime.now().isoformat(),  # Reset timer when key is updated
+                    }
                 )
                 return self.async_create_entry(title="", data={})
             else:
@@ -280,6 +299,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     step_id="api_key_options",
                     data_schema=vol.Schema({
                         vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
+                        vol.Optional("send_notifications", default=self.config_entry.options.get("send_notifications", True)): bool,
+                        vol.Optional("api_key_24h_type", default=self.config_entry.options.get("api_key_24h_type", True)): bool,
                     }),
                     errors=errors
                 )
@@ -288,6 +309,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
             step_id="api_key_options",
             data_schema=vol.Schema({
                 vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
+                vol.Optional("send_notifications", default=self.config_entry.options.get("send_notifications", True)): bool,
+                vol.Optional("api_key_24h_type", default=self.config_entry.options.get("api_key_24h_type", True)): bool,
             })
         )
 
