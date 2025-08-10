@@ -265,22 +265,14 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
-        _LOGGER.error("=== OPTIONS INIT STEP CALLED ===")
         config_type = self.config_entry.data.get("config_type", "summoner")
-        _LOGGER.error(f"Config type: {config_type}, User input: {user_input}")
         
         if config_type == "api_key":
-            _LOGGER.error("Handling API key options in init step")
-            
             if user_input is not None:
-                _LOGGER.error("=== USER INPUT RECEIVED IN INIT ===")
-                # Extract values from user input with logging
+                # Extract values from user input
                 new_api_key = user_input["api_key"]
                 send_notifications = user_input.get("Key expiration notifications", True)
                 api_key_24h_type = user_input.get("24-hour API key reminders", True)
-                
-                _LOGGER.error(f"User Input: {user_input}")
-                _LOGGER.error(f"Extracted - notifications: {send_notifications}, 24h: {api_key_24h_type}")
                 
                 # Check if API key has changed
                 current_api_key = self.config_entry.data.get("api_key", "")
@@ -291,8 +283,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     validation_result = await self._validate_api_key(new_api_key)
                     if not validation_result["valid"]:
                         errors = {"api_key": validation_result["error"]}
-                        current_notifications = self.config_entry.options.get("send_notifications", True)
-                        current_24h = self.config_entry.options.get("api_key_24h_type", True)
+                        current_notifications = self.config_entry.options.get("send_notifications") or self.config_entry.data.get("send_notifications", True)
+                        current_24h = self.config_entry.options.get("api_key_24h_type") or self.config_entry.data.get("api_key_24h_type", True)
                         return self.async_show_form(
                             step_id="init",
                             data_schema=vol.Schema({
@@ -303,86 +295,62 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                             errors=errors
                         )
                 
-                # Update config entry - always update options, update data only if API key changed
+                # Update config entry - store in both data and options for persistence
                 from datetime import datetime
-                new_options = {
-                    "send_notifications": send_notifications,
-                    "api_key_24h_type": api_key_24h_type,
-                }
-                
-                _LOGGER.error(f"Preparing to save options: {new_options}")
                 
                 if api_key_changed:
                     # Update both data and options with new timestamp
                     new_data = self.config_entry.data.copy()
                     new_data["api_key"] = new_api_key
-                    # Store notification settings in data as well as options for persistence
                     new_data["send_notifications"] = send_notifications
                     new_data["api_key_24h_type"] = api_key_24h_type
-                    new_options["api_key_update_time"] = datetime.now().isoformat()  # Reset timer when key is updated
-                    _LOGGER.error(f"API key changed - updating data and options")
+                    
+                    new_options = {
+                        "send_notifications": send_notifications,
+                        "api_key_24h_type": api_key_24h_type,
+                        "api_key_update_time": datetime.now().isoformat(),
+                    }
+                    
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, 
                         data=new_data,
                         options=new_options
                     )
                 else:
-                    # Only update options, preserve existing api_key_update_time
-                    # Also store in data for persistence
+                    # Only update notification settings, preserve existing api_key_update_time
                     new_data = self.config_entry.data.copy()
                     new_data["send_notifications"] = send_notifications
                     new_data["api_key_24h_type"] = api_key_24h_type
                     
                     existing_options = self.config_entry.options.copy()
-                    existing_options.update(new_options)
-                    _LOGGER.error(f"API key unchanged - updating only options: {existing_options}")
-                    _LOGGER.error(f"Config entry options before update: {self.config_entry.options}")
-                    
-                    # Try a more direct approach - pass all options explicitly
                     final_options = {
                         "send_notifications": send_notifications,
                         "api_key_24h_type": api_key_24h_type,
                         "api_key_update_time": existing_options.get("api_key_update_time", datetime.now().isoformat()),
                     }
-                    _LOGGER.error(f"Final options to save: {final_options}")
                     
                     self.hass.config_entries.async_update_entry(
                         self.config_entry, 
                         data=new_data,
                         options=final_options
                     )
-                    _LOGGER.error(f"Config entry options after update: {self.config_entry.options}")
                 
-                _LOGGER.error("=== OPTIONS UPDATE COMPLETED ===")
                 return self.async_create_entry(title="", data={})
 
-            # Show form with current values - get fresh config entry
-            # The self.config_entry might be stale, so get the current one
-            _LOGGER.error(f"Looking for config entry with ID: {self.config_entry.entry_id}")
+            # Show form with current values - use fallback from data if options are empty
             current_entry = None
-            all_entries = self.hass.config_entries.async_entries(DOMAIN)
-            _LOGGER.error(f"Found {len(all_entries)} entries in domain")
-            
-            for entry in all_entries:
-                _LOGGER.error(f"Entry ID: {entry.entry_id}, Type: {entry.data.get('config_type')}, Options: {entry.options}")
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
                 if entry.entry_id == self.config_entry.entry_id:
                     current_entry = entry
                     break
             
             if current_entry:
-                _LOGGER.error(f"Fresh config entry found! Options: {current_entry.options}")
-                _LOGGER.error(f"Fresh config entry data: {current_entry.data}")
                 # Try to get values from options first, then fallback to data
                 current_notifications = current_entry.options.get("send_notifications") or current_entry.data.get("send_notifications", True)
                 current_24h = current_entry.options.get("api_key_24h_type") or current_entry.data.get("api_key_24h_type", True)
             else:
-                _LOGGER.error("Could not find fresh config entry, using self.config_entry")
                 current_notifications = self.config_entry.options.get("send_notifications") or self.config_entry.data.get("send_notifications", True)
                 current_24h = self.config_entry.options.get("api_key_24h_type") or self.config_entry.data.get("api_key_24h_type", True)
-            
-            _LOGGER.error(f"Using values - notifications: {current_notifications}, 24h: {current_24h}")
-            _LOGGER.error(f"Original config entry options: {self.config_entry.options}")
-            _LOGGER.error(f"Original config entry data: {self.config_entry.data}")
             
             return self.async_show_form(
                 step_id="init",
@@ -391,13 +359,8 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
                     vol.Optional("Key expiration notifications", default=current_notifications): bool,
                     vol.Optional("24-hour API key reminders", default=current_24h): bool,
                 }),
-                description_placeholders={
-                    "current_notifications": str(current_notifications),
-                    "current_24h": str(current_24h),
-                }
             )
         else:
-            _LOGGER.error("Routing to summoner options")
             return await self.async_step_summoner_options(user_input)
 
     async def async_step_api_key_options(self, user_input=None):
