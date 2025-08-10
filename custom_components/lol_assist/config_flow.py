@@ -268,8 +268,89 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
         _LOGGER.error(f"Config type: {config_type}, User input: {user_input}")
         
         if config_type == "api_key":
-            _LOGGER.error("Routing to API key options")
-            return await self.async_step_api_key_options(user_input)
+            _LOGGER.error("Handling API key options in init step")
+            
+            if user_input is not None:
+                _LOGGER.error("=== USER INPUT RECEIVED IN INIT ===")
+                # Extract values from user input with logging
+                new_api_key = user_input["api_key"]
+                send_notifications = user_input.get("Key expiration notifications", True)
+                api_key_24h_type = user_input.get("24-hour API key reminders", True)
+                
+                _LOGGER.error(f"User Input: {user_input}")
+                _LOGGER.error(f"Extracted - notifications: {send_notifications}, 24h: {api_key_24h_type}")
+                
+                # Check if API key has changed
+                current_api_key = self.config_entry.data.get("api_key", "")
+                api_key_changed = new_api_key != current_api_key
+                
+                if api_key_changed:
+                    # Validate new API key only if it changed
+                    validation_result = await self._validate_api_key(new_api_key)
+                    if not validation_result["valid"]:
+                        errors = {"api_key": validation_result["error"]}
+                        current_notifications = self.config_entry.options.get("send_notifications", True)
+                        current_24h = self.config_entry.options.get("api_key_24h_type", True)
+                        return self.async_show_form(
+                            step_id="init",
+                            data_schema=vol.Schema({
+                                vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
+                                vol.Optional("Key expiration notifications", default=current_notifications): bool,
+                                vol.Optional("24-hour API key reminders", default=current_24h): bool,
+                            }),
+                            errors=errors
+                        )
+                
+                # Update config entry - always update options, update data only if API key changed
+                from datetime import datetime
+                new_options = {
+                    "send_notifications": send_notifications,
+                    "api_key_24h_type": api_key_24h_type,
+                }
+                
+                _LOGGER.error(f"Preparing to save options: {new_options}")
+                
+                if api_key_changed:
+                    # Update both data and options with new timestamp
+                    new_data = self.config_entry.data.copy()
+                    new_data["api_key"] = new_api_key
+                    new_options["api_key_update_time"] = datetime.now().isoformat()  # Reset timer when key is updated
+                    _LOGGER.error(f"API key changed - updating data and options")
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry, 
+                        data=new_data,
+                        options=new_options
+                    )
+                else:
+                    # Only update options, preserve existing api_key_update_time
+                    existing_options = self.config_entry.options.copy()
+                    existing_options.update(new_options)
+                    _LOGGER.error(f"API key unchanged - updating only options: {existing_options}")
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry, 
+                        options=existing_options
+                    )
+                
+                _LOGGER.error("=== OPTIONS UPDATE COMPLETED ===")
+                return self.async_create_entry(title="", data={})
+
+            # Show form with current values
+            current_notifications = self.config_entry.options.get("send_notifications", True)
+            current_24h = self.config_entry.options.get("api_key_24h_type", True)
+            _LOGGER.error(f"Showing API key form - current notifications: {current_notifications}, 24h: {current_24h}")
+            
+            return self.async_show_form(
+                step_id="init",
+                data_schema=vol.Schema({
+                    vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
+                    vol.Optional("Key expiration notifications", default=current_notifications): bool,
+                    vol.Optional("24-hour API key reminders", default=current_24h): bool,
+                }),
+                description_placeholders={
+                    "current_notifications": str(current_notifications),
+                    "current_24h": str(current_24h),
+                }
+            )
         else:
             _LOGGER.error("Routing to summoner options")
             return await self.async_step_summoner_options(user_input)
