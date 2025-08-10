@@ -273,37 +273,57 @@ class RiotLoLOptionsFlow(config_entries.OptionsFlow):
     async def async_step_api_key_options(self, user_input=None):
         """Handle API key options."""
         if user_input is not None:
-            # Validate new API key
+            # Extract values from user input
             new_api_key = user_input["api_key"]
             send_notifications = user_input.get("send_notifications", True)
             api_key_24h_type = user_input.get("api_key_24h_type", True)
-            validation_result = await self._validate_api_key(new_api_key)
-            if validation_result["valid"]:
-                # Update the config entry data and options with new timestamp
-                from datetime import datetime
+            
+            # Check if API key has changed
+            current_api_key = self.config_entry.data.get("api_key", "")
+            api_key_changed = new_api_key != current_api_key
+            
+            if api_key_changed:
+                # Validate new API key only if it changed
+                validation_result = await self._validate_api_key(new_api_key)
+                if not validation_result["valid"]:
+                    errors = {"api_key": validation_result["error"]}
+                    return self.async_show_form(
+                        step_id="api_key_options",
+                        data_schema=vol.Schema({
+                            vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
+                            vol.Optional("send_notifications", default=send_notifications): bool,
+                            vol.Optional("api_key_24h_type", default=api_key_24h_type): bool,
+                        }),
+                        errors=errors
+                    )
+            
+            # Update config entry - always update options, update data only if API key changed
+            from datetime import datetime
+            new_options = {
+                "send_notifications": send_notifications,
+                "api_key_24h_type": api_key_24h_type,
+            }
+            
+            if api_key_changed:
+                # Update both data and options with new timestamp
                 new_data = self.config_entry.data.copy()
                 new_data["api_key"] = new_api_key
+                new_options["api_key_update_time"] = datetime.now().isoformat()  # Reset timer when key is updated
                 self.hass.config_entries.async_update_entry(
                     self.config_entry, 
                     data=new_data,
-                    options={
-                        "send_notifications": send_notifications,
-                        "api_key_24h_type": api_key_24h_type,
-                        "api_key_update_time": datetime.now().isoformat(),  # Reset timer when key is updated
-                    }
+                    options=new_options
                 )
-                return self.async_create_entry(title="", data={})
             else:
-                errors = {"api_key": validation_result["error"]}
-                return self.async_show_form(
-                    step_id="api_key_options",
-                    data_schema=vol.Schema({
-                        vol.Required("api_key", default=self.config_entry.data.get("api_key", "")): str,
-                        vol.Optional("send_notifications", default=self.config_entry.options.get("send_notifications", True)): bool,
-                        vol.Optional("api_key_24h_type", default=self.config_entry.options.get("api_key_24h_type", True)): bool,
-                    }),
-                    errors=errors
+                # Only update options, preserve existing api_key_update_time
+                existing_options = self.config_entry.options.copy()
+                existing_options.update(new_options)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, 
+                    options=existing_options
                 )
+            
+            return self.async_create_entry(title="", data={})
 
         return self.async_show_form(
             step_id="api_key_options",
