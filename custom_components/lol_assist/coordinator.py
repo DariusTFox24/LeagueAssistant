@@ -258,15 +258,11 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         if not api_key:
             raise UpdateFailed("No API key available")
         return {"X-Riot-Token": api_key}
-        
-        if self._puuid:
-            _LOGGER.info(f"Using pre-validated PUUID for {riot_id}: {self._puuid[:8]}...")
-        else:
-            _LOGGER.info(f"No pre-validated PUUID, will fetch account info for {riot_id}")
 
     async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch data from Riot API."""
-        _LOGGER.info("Starting data update cycle...")
+        riot_id = f"{self._game_name}#{self._tag_line}" if self._tag_line else self._game_name
+        _LOGGER.info("Starting data update cycle for %s in region %s...", riot_id, self._region)
         
         # Check for 24-hour API key expiration reminder
         await self._check_24h_api_key_expiration()
@@ -277,16 +273,20 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed("No API key configured. Please set up the Riot Games API key first.")
         
         try:
-            # Initialize PUUID if not set
-            if not self._puuid:
-                _LOGGER.info("No PUUID cached, fetching account info...")
-                try:
-                    await self._fetch_account_info()
-                except UpdateFailed as err:
-                    _LOGGER.error("Failed to fetch account info: %s", err)
+            # Always refresh PUUID to ensure region consistency with current API key
+            # This handles cases where API key region context changes or PUUID was cached from wrong region
+            try:
+                _LOGGER.debug("Refreshing account info to ensure PUUID region consistency...")
+                await self._fetch_account_info()
+            except UpdateFailed as err:
+                _LOGGER.error("Failed to refresh account info: %s", err)
+                # If we have a cached PUUID, continue with warning, otherwise fail
+                if not self._puuid:
                     raise
-            else:
-                _LOGGER.debug("Using cached PUUID: %s", self._puuid[:8] + "...")
+                _LOGGER.warning("Using cached PUUID despite refresh failure: %s", self._puuid[:8] + "...")
+            
+            if not self._puuid:
+                raise UpdateFailed("No PUUID available after account refresh")
             
             # Fetch match history and latest match data first
             try:
@@ -396,7 +396,9 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(f"Error communicating with Riot API: {err}")
 
     async def _fetch_account_info(self) -> None:
-        """Fetch account info using Riot ID."""
+        """Fetch account info using Riot ID and ensure PUUID consistency with device region."""
+        # Always use the device's configured region for the regional cluster
+        # This ensures PUUID is fetched from the correct region for this device
         regional_cluster = REGION_CLUSTERS.get(self._region, "americas")
         
         encoded_game_name = quote(self._game_name, safe='')
@@ -406,9 +408,9 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
         headers = self._get_headers()
         timeout = ClientTimeout(total=10)
         
-        _LOGGER.info("Fetching account info for %s#%s in region %s (cluster: %s)", 
+        _LOGGER.info("Fetching account info for %s#%s in device region %s (cluster: %s)", 
                     self._game_name, self._tag_line, self._region, regional_cluster)
-        _LOGGER.info("Account API URL structure: https://%s.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{gameName}/{tagLine}", regional_cluster)
+        _LOGGER.debug("Account API URL: %s", url)
         
         try:
             async with self._session.get(url, headers=headers, timeout=timeout) as response:
@@ -420,8 +422,15 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     
                     puuid = data.get("puuid")
                     if puuid and len(puuid) > 0:
+                        # Always update PUUID from fresh fetch to ensure region consistency
+                        old_puuid = self._puuid
                         self._puuid = puuid
-                        _LOGGER.debug("Retrieved PUUID: %s", self._puuid[:8] + "...")
+                        if old_puuid and old_puuid != puuid:
+                            _LOGGER.info("PUUID updated for region consistency: %s -> %s", 
+                                       old_puuid[:8] + "..." if old_puuid else "None", 
+                                       self._puuid[:8] + "...")
+                        else:
+                            _LOGGER.debug("Retrieved PUUID for region %s: %s", self._region, self._puuid[:8] + "...")
                     else:
                         available_fields = list(data.keys()) if data else []
                         _LOGGER.error("Account API response missing valid 'puuid' field. Available fields: %s", available_fields)
@@ -436,7 +445,7 @@ class RiotLoLDataUpdateCoordinator(DataUpdateCoordinator):
                     )
                     raise UpdateFailed("Invalid or expired API key")
                 elif response.status == 404:
-                    raise UpdateFailed(f"Riot ID not found: {self._game_name}#{self._tag_line}")
+                    raise UpdateFailed(f"Riot ID not found: {self._game_name}#{self._tag_line} in region {self._region}")
                 else:
                     raise UpdateFailed(f"API error: {response.status}")
                     
